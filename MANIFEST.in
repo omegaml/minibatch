@@ -1,0 +1,14 @@
+include docs
+recursive-include docs/source *.rst *.css *.py *.png *.gif *.svg *.jpg
+recursive-include omegaml/tests/features *.feature
+include LICENSE
+include NOTICE
+include THIRDPARTY
+include THIRDPARTY-LICENSES
+include README.rst
+include minibatch/VERSION
+include Procfile
+include docker-compose.yml
+include Dockerfile
+include requirements.txt
+include conda-requirements.txt

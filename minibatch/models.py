@@ -1,4 +1,5 @@
 import datetime
+from logging import warning
 from uuid import uuid4
 
 from mongoengine import Document
@@ -91,7 +92,10 @@ class Stream(Document):
         # critical section
         # this may fail in concurrency situations
         from minibatch import setup
-        setup(alias='minibatch', url=url)
+        try:
+            setup(alias='minibatch', url=url)
+        except Exception as e:
+            warning("Stream setup resulted in {}".format(str(e)))
         try:
             stream = Stream.objects(name=name).no_cache().get()
         except Stream.DoesNotExist:

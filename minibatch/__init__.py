@@ -1,12 +1,13 @@
-from mongoengine import connect, register_connection
+from mongoengine import connect
 from mongoengine.connection import get_db
 
+from minibatch._version import version
 from minibatch.models import Stream, Buffer
 from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
 
 def streaming(name, interval=None, size=None, emitter=None,
-              relaxed=True, keep=False, **kwargs):
+              relaxed=True, keep=False, url=None, **kwargs):
     """
     make and call a streaming function
 
@@ -50,7 +51,7 @@ def streaming(name, interval=None, size=None, emitter=None,
 
     def inner(fn):
         fn._count = 0
-        stream = Stream.get_or_create(name, interval=interval or size)
+        stream = Stream.get_or_create(name, interval=interval or size, url=url)
         if interval and emitter is None:
             if relaxed:
                 em = RelaxedTimeWindow(name, emitfn=fn, interval=interval)
