@@ -2,7 +2,7 @@ Minibatch - Python Stream Processing for humans
 ===============================================
 
 Pre-requisites:
-    * a running MongoDB accessible to minibatch (docker run mongodb)
+    * a running MongoDB accessible to minibatch (`docker run mongodb`)
 
 omega|ml provides a straight-forward, Python-native approach to mini-batch streaming and complex-event
 processing that is highly scalable. Streaming primarily consists of
@@ -16,7 +16,7 @@ outputs messages to a consumer on the other end. This transfer of messages happe
 is the producer can send messages to the stream independent of whether the consumer is ready to receive, and the
 consumer can take messages from the stream independent of whether the producer is ready to send.
 
-Unlike usual asynchronous messaging, however, we want the consumer to receive messages in small batches as
+Unlike usual asynchronous messaging, however, we want the consumer to receive messages in small batches 
 to optimize throughput. That is, we want the pipeline to *emit* messages only subject to some criteria
 of grouping messages, where each group is called a *mini-batch*. The function that determines whether the
 batching criteria is met (e.g. time elapsed, number of messages in the pipeline) is called *emitter strategy*,
@@ -32,7 +32,7 @@ Thus in order to connect producers and consumers we need a few more parts to our
 .. note::
 
     The producer accepts input from some external system, say a Kafka queue. The producer's responsibility
-    is to enter the data into the streaming buffer. The consumer uses some emitter strategy to produce
+    is to enter the data into the streaming buffer. The consumer uses an emitter strategy to produce
     a Window of data that is then forwarded to the user's processing code.
 
 Creating a stream
@@ -82,7 +82,7 @@ available out of the box:
 * :code:`CountWindow` - emit fixed-sized windows. Waits until at least *n* messages are
    available before emitting a new window
 * :code:`FixedTimeWindow`- emit all messages retrieved within specific, time-fixed windows of
-   a given interval of *n* seconds. This guarnatees that messages were received in the specific
+   a given interval of *n* seconds. This guarantee that messages were received in the specific
    window.
 * :code:`RelaxedTimeWindow` - every interval of *n* seconds emit all messages retrieved since
    the last window was created. This does not guarantee that messages were received in a given
