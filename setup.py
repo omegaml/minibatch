@@ -18,5 +18,5 @@ setup(name='minibatch',
       packages=['minibatch'],
       zip_safe=False,
       install_requires=[
-          'mongoengine>=0.18,<0.19',
+          'mongoengine>=0.18', # Mongo 4.2 requires at least mongoengine 0.19 due to https://github.com/MongoEngine/mongoengine/pull/2160/files
       ])
