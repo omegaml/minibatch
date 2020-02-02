@@ -1,3 +1,4 @@
+import os
 from mongoengine import connect
 from mongoengine.connection import get_db
 
@@ -77,6 +78,7 @@ class IntegrityError(Exception):
 
 
 def setup(url=None, dbname=None, alias=None, **kwargs):
+    url = url or os.environ.get('MONGO_URL')
     alias = alias or 'minibatch'
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
     return get_db(alias=alias)
