@@ -2,7 +2,7 @@ Minibatch - Python Stream Processing for humans
 ===============================================  
   
 Dependencies:  
-    * a running MongoDB accessible to minibatch (`docker run mongodb`)
+    * a running MongoDB accessible to minibatch (:code:`docker run mongo`)
     * Python 3.x
   
 omega|ml provides a straight-forward, Python-native approach to mini-batch streaming and complex-event  
@@ -14,7 +14,9 @@ processing that is easily scalable. Streaming primarily consists of
 Quick start  
 -----------  
   
-1. Create a stream producer  
+1. Create a stream producer
+
+   .. code::
   
         from minibatch import Stream  
         stream = Stream.get_or_create('test')  
@@ -23,7 +25,9 @@ Quick start
             sleep(.5)  
   
 2. Consume the stream  
-  
+
+   .. code::
+
         from minibatch import streaming  
 	    @streaming('test', size=2, keep=True)  
 	    def myprocess(window):  
@@ -35,21 +39,23 @@ Quick start
 	    [{'date': '2018-04-30T20:18:24.041337'}, {'date': '2018-04-30T20:18:24.593545'}  
 	    ...  
 
-	`myprocess` is called for every N-tuple of items (`size=2`)  appended to the stream by the producer(s). The frequency is determined by the emitter strategy. This can be configured or changed for a custom emitter strategy, as shown in the next step. 
+   `myprocess` is called for every N-tuple of items (`size=2`)  appended to the stream by the producer(s).
+   The frequency is determined by the emitter strategy. This can be configured or changed for a custom
+   emitter strategy, as shown in the next step.
   
 3. Configure the emitter strategy  
   
-	Note the `@streaming` decorator. It implements a blocking consumer that delivers batches  
-	of data according to some strategy implemented by a WindowEmitter. Currently `@streaming`  
-	provides the following interface:  
+   Note the `@streaming` decorator. It implements a blocking consumer that delivers batches
+   of data according to some strategy implemented by a WindowEmitter. Currently `@streaming`
+   provides the following interface:
 	  
-	* `size=N` - uses the :code:`CountWindow` emitter  
-	* `interval=SECONDS` - uses the :code:`RelaxedTimeWindow` emitter  
-	* `interval=SECONDS, relaxed=False` - uses the :code:`FixedTimeWindow` emitter  
-	* `emitter=CLASS:WindowEmitter` - uses the given subclass of a :code:`WindowEmitter`  
+    * `size=N` - uses the :code:`CountWindow` emitter
+    * `interval=SECONDS` - uses the :code:`RelaxedTimeWindow` emitter
+    * `interval=SECONDS, relaxed=False` - uses the :code:`FixedTimeWindow` emitter
+    * `emitter=CLASS:WindowEmitter` - uses the given subclass of a :code:`WindowEmitter`
  
- Window emitters
- --------------------- 
+Window emitters
+---------------
  
 minibatch provides the following window emitters out of the box:  
   
@@ -152,7 +158,7 @@ Notes:
   2/3/4, respectively.
 
 Further development
---------------------------
+-------------------
 
 Here are a couple of ideas to extend minibatch. Contributions are welcome.
 
@@ -161,7 +167,7 @@ Here are a couple of ideas to extend minibatch. Contributions are welcome.
 * add other storage backends (e.g. Redis, or some Python-native in-memory db that provides an easy to use ORM layer, like mongoengine does for MongoDB)
 
 License
----------
+-------
 
 MIT licensed. See LICENSE file.
 
