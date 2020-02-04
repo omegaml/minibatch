@@ -1,11 +1,12 @@
 import os
 
-from mongoengine import connect
-from mongoengine.connection import get_db, _connection_settings
+import logging
 
 from minibatch._version import version  # noqa
-from minibatch.models import Stream, Buffer # noqa
-from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
+from minibatch.models import Stream, Buffer  # noqa
+
+logger = logging.getLogger(__name__)
+mongo_pid = None
 
 
 def streaming(name, interval=None, size=None, emitter=None,
@@ -52,17 +53,22 @@ def streaming(name, interval=None, size=None, emitter=None,
         url: the mongo db url
         **kwargs: kwargs passed to emitter class
     """
+    from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     def inner(fn):
         fn._count = 0
-        Stream.get_or_create(name, interval=interval or size, url=url)
+        stream = Stream.get_or_create(name, interval=interval or size, url=url)
+        kwargs.update(stream=stream)
         if interval and emitter is None:
             if relaxed:
-                em = RelaxedTimeWindow(name, emitfn=fn, interval=interval)
+                em = RelaxedTimeWindow(name, emitfn=fn,
+                                       interval=interval, **kwargs)
             else:
-                em = FixedTimeWindow(name, emitfn=fn, interval=interval)
+                em = FixedTimeWindow(name, emitfn=fn,
+                                     interval=interval, **kwargs)
         elif size and emitter is None:
-            em = CountWindow(name, emitfn=fn, interval=size)
+            em = CountWindow(name, emitfn=fn,
+                             interval=size, **kwargs)
         elif emitter is not None:
             em = emitter(name, emitfn=fn,
                          interval=interval or size,
@@ -80,9 +86,29 @@ class IntegrityError(Exception):
     pass
 
 
+def ensure_mongoclient_processlocal():
+    # this is to avoid mongoengine's MongoClient instances in subprocesses
+    # resulting in "MongoClient opened before fork" warning
+    # the source of the problem is that mongoengine stores MongoClients in
+    # a module-global dictionary. here we simply clear that dictionary before
+    # the connections are re-created in a forked process
+    global mongo_pid
+    if mongo_pid != os.getpid():
+        from mongoengine import connection
+        connection._connection_settings.clear()
+        connection._connections.clear()
+        connection._dbs.clear()
+    else:
+        mongo_pid = os.getpid()
+
+
 def connectdb(url=None, dbname=None, alias=None, **kwargs):
+    from mongoengine import connect
+    from mongoengine.connection import get_db, _connection_settings
+
     url = url or os.environ.get('MONGO_URL')
     alias = alias or 'minibatch'
+    ensure_mongoclient_processlocal()
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
     if 'default' not in _connection_settings:
         # workaround to https://github.com/MongoEngine/mongoengine/issues/2239

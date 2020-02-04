@@ -18,3 +18,6 @@ clean:
 
 lint:
 	flake8 && echo CONGRATULATIONS all is OK
+
+test:
+	nosetests -s -v

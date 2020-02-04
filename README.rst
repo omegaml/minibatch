@@ -10,6 +10,7 @@ processing that is easily scalable. Streaming primarily consists of
   
 * a producer, which is some function inserting data into the stream
 * a consumer, which is some function retrieving data from the stream
+* transform and windowing functions to process the data in small batches
 
 Features
 --------
@@ -17,7 +18,7 @@ Features
 * native Python producers and consumers
 * includes three basic Window strategies: CountWindow, FixedTimeWindow, RelaxedTimeWindow
 * extensible Window strategies by subclassing and overriding a few methods
-* scalable, persistent streams
+* scalable, persistent streams - parallel inserts, parallel processing of windows
 
 A few hightlights
 
@@ -74,7 +75,9 @@ Quick start
     * `interval=SECONDS` - uses the :code:`RelaxedTimeWindow` emitter
     * `interval=SECONDS, relaxed=False` - uses the :code:`FixedTimeWindow` emitter
     * `emitter=CLASS:WindowEmitter` - uses the given subclass of a :code:`WindowEmitter`
- 
+    * `workers=N` - set the number of workers to process the decorated function, defaults to number of CPUs
+    * `executor=CLASS:Executor` - the asynchronous executor to use, defaults to :code:`concurrent.futures.ProcessPoolExecutor`
+
 
 Window emitters
 ---------------
@@ -186,7 +189,8 @@ Here are a couple of ideas to extend minibatch. Contributions are welcome.
 
 * more examples, following typical streaming examples like word count, filtering
 * more emitter strategies, e.g. for sliding windows
-* asynchronous, parallel and distributed processing of windows
+* performance testing, benchmarking
+* distributed processing of windows via distributed framework such as celery, ray, dask
 * extend emitters by typical stream operations e.g. to support operations like count, filter, map, groupby, merge, join
 * add other storage backends (e.g. Redis, or some Python-native in-memory db that provides network access and an easy to use ORM layer, like mongoengine does for MongoDB)
 

@@ -1,8 +1,10 @@
-import time
+from concurrent.futures import Future, ProcessPoolExecutor
 
 import datetime
+import logging
 
-from minibatch import Buffer, Stream
+from minibatch import Buffer, Stream, logger
+from minibatch.marshaller import SerializableFunction, MinibatchFuture
 from minibatch.models import Window
 
 
@@ -16,6 +18,7 @@ class WindowEmitter(object):
     2. retrieve the data from the buffer to create a Window
     3. process the data (i.e. mark the buffered data processed)
     4. run the emit function on the window
+    5. commit (emit function successful) or undo (exception raised)
 
     Note that run() is blocking. Between running the protocol,
     it will sleep to conserve resources.
@@ -26,6 +29,7 @@ class WindowEmitter(object):
                          data for a window.
         query()        - return the Buffer objects to process
         process()      - process the data
+        emit()         - emit a Window
         timestamp()    - timestamp the stream for the next processing
         commit()       - commit processed data back to the buffer. by
                          default this means removing the objects from the
@@ -56,15 +60,17 @@ class WindowEmitter(object):
     sure Window objects are processed by exactly one emitter.
     """
 
-    def __init__(self, stream, interval=None, processfn=None, emitfn=None,
-                 emit_empty=False):
-        self.stream_name = stream
+    def __init__(self, stream_name, interval=None, processfn=None,
+                 emitfn=None, emit_empty=False, executor=None,
+                 max_workers=None, stream=None, stream_url=None):
+        self.stream_name = stream_name
         self.interval = interval
         self.emit_empty = emit_empty
         self.emitfn = emitfn
         self.processfn = processfn
-        self._stream = None
-        self._window = None  # current window if any
+        self.executor = (executor or ProcessPoolExecutor(max_workers=max_workers))
+        self._stream = stream
+        self._stream_url = stream_url
         self._delete_on_commit = True
 
     def query(self, *args):
@@ -81,7 +87,8 @@ class WindowEmitter(object):
     def stream(self):
         if self._stream:
             return self._stream
-        self._stream = Stream.get_or_create(self.stream_name)
+        self._stream = Stream.get_or_create(self.stream_name,
+                                            url=self._stream_url)
         return self._stream
 
     def process(self, qs):
@@ -93,11 +100,11 @@ class WindowEmitter(object):
             data.append(obj)
         return data
 
-    def undo(self, qs):
+    def undo(self, qs, window=None):
         for obj in qs:
             obj.modify(processed=False)
-        if self._window:
-            self._window.delete()
+        if window:
+            window.delete()
         return qs
 
     def persist(self, flag=True):
@@ -112,11 +119,20 @@ class WindowEmitter(object):
         window.delete()
 
     def emit(self, qs):
-        self._window = Window(stream=self.stream.name,
-                              data=[obj.data for obj in qs]).save()
+        window = Window(stream=self.stream.name,
+                        data=[obj.data for obj in qs]).save()
         if self.emitfn:
-            self._window = self.emitfn(self._window) or self._window
-        return self._window
+            logging.debug("calling emitfn")
+            try:
+                sjob = SerializableFunction(self.emitfn, window)
+                future = self.executor.submit(sjob)
+            except Exception:
+                raise
+        else:
+            future = Future()
+            future.set_result(window)
+        future = MinibatchFuture(future, window=window)
+        return future
 
     def sleep(self):
         import time
@@ -124,22 +140,42 @@ class WindowEmitter(object):
 
     def run(self):
         while True:
+            logger.debug("testing window ready")
             ready, query_args = self.window_ready()
             if ready:
+                logger.debug("window ready")
                 qs = self.query(*query_args)
                 qs = self.process(qs)
+                # note self.emit is usin an async executor
+                # that returns a future
                 if qs or self.emit_empty:
-                    try:
-                        window = self.emit(qs)
-                    except Exception as e:
-                        self.undo(qs)
-                        print(str(e))
-                    else:
-                        self.commit(qs, window)
-                    finally:
-                        self.timestamp(*query_args)
+                    logger.debug("Emitting")
+                    future = self.emit(qs)
+                    logger.debug("got future {}".format(future))
+                    future['qs'] = qs
+                    future['query_args'] = query_args
 
+                    def emit_done(future):
+                        # this is called once upon future resolves
+                        future = MinibatchFuture(future)
+                        logger.debug("emit done {}".format(future))
+                        qs = future.qs
+                        window = future.window
+                        query_args = future.query_args
+                        try:
+                            window = future.result() or window
+                        except Exception:
+                            self.undo(qs, window)
+                        else:
+                            self.commit(qs, window)
+                        finally:
+                            self.timestamp(*query_args)
+                        self.sleep()
+
+                    future.add_done_callback(emit_done)
+            logger.debug("sleeping")
             self.sleep()
+            logger.debug("awoke")
 
 
 class FixedTimeWindow(WindowEmitter):
@@ -174,19 +210,19 @@ class FixedTimeWindow(WindowEmitter):
 
     def query(self, *args):
         last_read, max_read = args
-        fltkwargs = dict(created__gte=last_read, created__lte=max_read)
+        fltkwargs = dict(stream=self.stream_name,
+                         created__gte=last_read, created__lte=max_read)
         return Buffer.objects.no_cache().filter(**fltkwargs)
 
     def timestamp(self, *args):
         last_read, max_read = args
-        self.stream.modify(query=dict(last_read__gte=last_read),
-                           last_read=max_read)
+        self.stream.modify(query=dict(last_read__gte=last_read), last_read=max_read)
         self.stream.reload()
 
     def sleep(self):
+        import time
         # we have strict time windows, only sleep if we are up to date
-        previous = datetime.now() - datetime.timedelta(seconds=self.interval)
-        if (self.stream.last_read > previous):
+        if self.stream.last_read > datetime.datetime.now() - datetime.timedelta(seconds=self.interval):
             # sleep slightly longer to make sure the interval is complete
             # and all data had a chance to accumulate. if we don't do
             # this we might get empty windows on accident, resulting in
@@ -219,8 +255,8 @@ class RelaxedTimeWindow(WindowEmitter):
 
     def query(self, *args):
         last_read, max_read = args
-        fltkwargs = dict(created__gt=last_read, created__lte=max_read,
-                         processed=False)
+        fltkwargs = dict(stream=self.stream_name, created__gt=last_read,
+                         created__lte=max_read, processed=False)
         return Buffer.objects.no_cache().filter(**fltkwargs)
 
     def timestamp(self, *args):
@@ -231,9 +267,8 @@ class RelaxedTimeWindow(WindowEmitter):
 
 class CountWindow(WindowEmitter):
     def window_ready(self):
-        qs = (Buffer.objects.no_cache()
-              .filter(processed=False)
-              .limit(self.interval))
+        fltkwargs = dict(stream=self.stream_name, processed=False)
+        qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.interval)
         self._data = list(qs)
         return len(self._data) >= self.interval, ()
 
