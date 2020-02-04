@@ -116,7 +116,7 @@ class Stream(Document):
         try:
             connectdb(alias='minibatch', url=url)
         except Exception as e:
-            warning("Stream setup resulted in {}".format(str(e)))
+            warning("Stream setup resulted in {} {}".format(type(e), str(e)))
         try:
             stream = Stream.objects(name=name).no_cache().get()
         except Stream.DoesNotExist:
