@@ -104,7 +104,7 @@ class Stream(Document):
 
     def stop(self):
         if getattr(self, '_source_thread', None):
-            self._source_threads.stop()
+            self._source_thread.stop()
             self._source_thread = None
         return self
 
