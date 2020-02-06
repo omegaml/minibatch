@@ -14,6 +14,15 @@ class KafkaSource:
 
         # stream to a python callable
         streaming('test')(lambda v: print(v))
+
+    Args:
+        topic (str): the kafka topic
+        urls (list): the kafka broker urls, defaults to localhost:9092
+        **configs: the keyword parameters to use on the kafka.KafkaConsumer
+           defaults to dict(bootstrap_servers=urls or ['localhost:9092'],
+            auto_offset_reset='earliest', enable_auto_commit=True,
+            group_id='group',
+            value_deserializer=lambda x: loads(x.decode('utf-8'))
     """
     def __init__(self, topic, urls=None, **configs):
         self.topic = topic

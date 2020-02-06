@@ -55,6 +55,9 @@ def streaming(name, interval=None, size=None, emitter=None,
     """
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
+    if interval is None and size is None:
+        size = 1
+
     def inner(fn):
         fn._count = 0
         stream = Stream.get_or_create(name, interval=interval or size, url=url)
@@ -82,6 +85,10 @@ def streaming(name, interval=None, size=None, emitter=None,
     return inner
 
 
+def stream(name, url=None):
+    return Stream.get_or_create(name, url=url)
+
+
 class IntegrityError(Exception):
     pass
 
@@ -93,14 +100,14 @@ def ensure_mongoclient_processlocal():
     # a module-global dictionary. here we simply clear that dictionary before
     # the connections are re-created in a forked process
     global mongo_pid
-    if mongo_pid != os.getpid():
-        from mongoengine import connection
-        connection._connection_settings.clear()
-        connection._connections.clear()
-        connection._dbs.clear()
-    else:
+    if mongo_pid is None:
+        # remember the main process that created the first MongoClient
         mongo_pid = os.getpid()
-
+    elif mongo_pid != os.getpid():
+        # we're in a new process, disconnect
+        # note this doesn't actually disconnect it just deletes the MongoClient
+        from mongoengine import disconnect_all
+        disconnect_all()
 
 def connectdb(url=None, dbname=None, alias=None, **kwargs):
     from mongoengine import connect
