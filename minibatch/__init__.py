@@ -1,6 +1,6 @@
 import os
 from mongoengine import connect
-from mongoengine.connection import get_db
+from mongoengine.connection import get_db, _connection_settings
 
 from minibatch._version import version
 from minibatch.models import Stream, Buffer
@@ -81,4 +81,7 @@ def setup(url=None, dbname=None, alias=None, **kwargs):
     url = url or os.environ.get('MONGO_URL')
     alias = alias or 'minibatch'
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
+    if 'default' not in _connection_settings:
+        # workaround to https://github.com/MongoEngine/mongoengine/issues/2239
+        connect(alias='default', db=dbname, host=url, connect=False, **kwargs)
     return get_db(alias=alias)
