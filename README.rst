@@ -25,6 +25,7 @@ A few hightlights
 * creating a stream and appending data is just 2 lines of code
 * producer and consumer stream code runs anywhere
 * no dependencies other than mongoengine, pymongo
+* extensible sources and sinks (already available: Kafka)
 
 Quick start  
 -----------
@@ -36,15 +37,24 @@ Quick start
       $ pip install minibatch
       $ docker run -d -p 27017:27017 mongo
 
-2. Create a stream producer
+2. Create a stream producer or attach to a source
 
    .. code::
 
-        from minibatch import Stream
+        from minibatch import stream
         stream = Stream.get_or_create('test')
         for i in range(100):
             stream.append({'date': datetime.datetime.now().isoformat()})
             sleep(.5)
+
+   support for Kafka as a source
+
+   .. code::
+
+      from minibatch.contrib.kafka import KafkaSource
+      source = KafkaSource('topic', urls=['kafka:port'])
+      stream.attach(source)
+
   
 3. Consume the stream
 
@@ -78,6 +88,43 @@ Quick start
     * `workers=N` - set the number of workers to process the decorated function, defaults to number of CPUs
     * `executor=CLASS:Executor` - the asynchronous executor to use, defaults to :code:`concurrent.futures.ProcessPoolExecutor`
 
+Stream sources
+--------------
+
+Currently provided in :code:`minibatch.contrib`:
+
+* KafkaSource - attach a stream to a Apache Kafka topic
+
+Stream sources are arbitrary objects that support the :code:`stream()`
+method, as follows.
+
+.. code::
+
+    class SomeSource:
+        ...
+        def stream(self, stream):
+            for data in source:
+                stream.append(data)
+
+
+Stream Sinks
+------------
+
+The result of a stream can be forwarded to a sink. Currently
+provided sinks in :code:`minibatch.contrib` are:
+
+* KafkaSink - forward messagess to a Apache Kafka topic
+
+Stream sinks are arbitrary objects that support the :code:`put()`
+method, as follows.
+
+.. code::
+
+    class SomeSink:
+        ...
+        def put(self, message):
+            sink.send(message)
+
 
 Window emitters
 ---------------
@@ -92,8 +139,8 @@ minibatch provides the following window emitters out of the box:
 * :code:`RelaxedTimeWindow` - every interval of *n* seconds emit all messages retrieved since
    the last window was created. This does not guarantee that messages were received in a given
    window.
-  
-  
+
+
 Implementing a custom WindowEmitter  
 -----------------------------------  
 

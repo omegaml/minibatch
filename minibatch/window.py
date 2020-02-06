@@ -62,7 +62,8 @@ class WindowEmitter(object):
 
     def __init__(self, stream_name, interval=None, processfn=None,
                  emitfn=None, emit_empty=False, executor=None,
-                 max_workers=None, stream=None, stream_url=None):
+                 max_workers=None, stream=None, stream_url=None,
+                 forwardfn=None):
         self.stream_name = stream_name
         self.interval = interval
         self.emit_empty = emit_empty
@@ -72,6 +73,8 @@ class WindowEmitter(object):
         self._stream = stream
         self._stream_url = stream_url
         self._delete_on_commit = True
+        self._forwardfn = forwardfn
+        self._stop = False
 
     def query(self, *args):
         raise NotImplementedError
@@ -134,12 +137,16 @@ class WindowEmitter(object):
         future = MinibatchFuture(future, window=window)
         return future
 
+    def forward(self, window):
+        if self._forwardfn:
+            self._forwardfn(window.data)
+
     def sleep(self):
         import time
         time.sleep((self.interval or self.stream.interval) / 2.0)
 
     def run(self):
-        while True:
+        while not self._stop:
             logger.debug("testing window ready")
             ready, query_args = self.window_ready()
             if ready:
@@ -168,6 +175,7 @@ class WindowEmitter(object):
                             self.undo(qs, window)
                         else:
                             self.commit(qs, window)
+                            self.forward(window)
                         finally:
                             self.timestamp(*query_args)
                         self.sleep()
