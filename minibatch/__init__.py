@@ -10,7 +10,7 @@ mongo_pid = None
 
 
 def streaming(name, interval=None, size=None, emitter=None,
-              relaxed=True, keep=False, url=None, **kwargs):
+              relaxed=True, keep=False, url=None, sink=None, **kwargs):
     """
     make and call a streaming function
 
@@ -53,31 +53,11 @@ def streaming(name, interval=None, size=None, emitter=None,
         url: the mongo db url
         **kwargs: kwargs passed to emitter class
     """
-    from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
-
-    if interval is None and size is None:
-        size = 1
 
     def inner(fn):
-        fn._count = 0
-        stream = Stream.get_or_create(name, interval=interval or size, url=url)
-        kwargs.update(stream=stream)
-        if interval and emitter is None:
-            if relaxed:
-                em = RelaxedTimeWindow(name, emitfn=fn,
-                                       interval=interval, **kwargs)
-            else:
-                em = FixedTimeWindow(name, emitfn=fn,
-                                     interval=interval, **kwargs)
-        elif size and emitter is None:
-            em = CountWindow(name, emitfn=fn,
-                             interval=size, **kwargs)
-        elif emitter is not None:
-            em = emitter(name, emitfn=fn,
-                         interval=interval or size,
-                         **kwargs)
-        else:
-            raise ValueError("need either interval=, size= or emitter=")
+        em = make_emitter(name, fn, interval=interval, size=size,
+                          emitter=emitter, relaxed=relaxed, keep=keep,
+                          url=url, sink=sink, **kwargs)
         em.persist(keep)
         em.run()
 
@@ -91,6 +71,35 @@ def stream(name, url=None):
 
 class IntegrityError(Exception):
     pass
+
+
+def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
+                 url=None, sink=None, emitter=None, keep=False, **kwargs):
+    from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
+
+    if interval is None and size is None:
+        size = 1
+
+    forwardfn = sink.put if sink else None
+
+    emitfn._count = 0
+    stream = Stream.get_or_create(name, interval=interval or size, url=url)
+    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn)
+    if interval and emitter is None:
+        if relaxed:
+            em = RelaxedTimeWindow(name, interval=interval, **kwargs)
+        else:
+            em = FixedTimeWindow(name, interval=interval, **kwargs)
+    elif size and emitter is None:
+        em = CountWindow(name, interval=size, **kwargs)
+    elif emitter is not None:
+        em = emitter(name, emitfn=emitfn,
+                     interval=interval or size,
+                     **kwargs)
+    else:
+        raise ValueError("need either interval=, size= or emitter=")
+    em.persist(keep)
+    return em
 
 
 def ensure_mongoclient_processlocal():
@@ -108,6 +117,7 @@ def ensure_mongoclient_processlocal():
         # note this doesn't actually disconnect it just deletes the MongoClient
         from mongoengine import disconnect_all
         disconnect_all()
+
 
 def connectdb(url=None, dbname=None, alias=None, **kwargs):
     from mongoengine import connect

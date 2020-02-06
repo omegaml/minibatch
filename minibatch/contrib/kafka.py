@@ -1,5 +1,5 @@
-from kafka import KafkaConsumer
-from json import loads
+from kafka import KafkaConsumer, KafkaProducer
+from json import loads, dumps
 
 
 class KafkaSource:
@@ -24,6 +24,7 @@ class KafkaSource:
             group_id='group',
             value_deserializer=lambda x: loads(x.decode('utf-8'))
     """
+
     def __init__(self, topic, urls=None, **configs):
         self.topic = topic
         if isinstance(urls, str):
@@ -47,3 +48,49 @@ class KafkaSource:
     def stream(self, stream):
         for message in self.consumer:
             stream.append(message.value)
+
+
+class KafkaSink:
+    """
+    A Kafka topic sink
+    """
+
+    def __init__(self, topic, urls=None, expand=True, **configs):
+        """
+
+        Args:
+            topic:
+            urls:
+            expand: if True will send each input message seperately, if False
+                will send all input messages as provided.
+            **configs:
+        """
+        self.topic = topic
+        if isinstance(urls, str):
+            urls = [urls]
+        self.configs = dict(
+            bootstrap_servers=urls or ['localhost:9092'],
+            auto_offset_reset='earliest',
+            enable_auto_commit=True,
+            group_id='group',
+            value_serializer=lambda x: dumps(x).encode('utf-8')
+        )
+        self.configs.update(configs)
+        self._producer = None
+        self.expand = expand
+
+    @property
+    def producer(self):
+        if self._producer is None:
+            self._producer = KafkaProducer(**self.configs)
+        return self._producer
+
+    def put(self, message, topic=None):
+        topic = topic or self.topic
+        if self.expand:
+            if not isinstance(message, (tuple, list)):
+                message = [message]
+            result = [self.producer.send(topic, value=m) for m in message]
+        else:
+            result = self.producer.send(topic, value=message)
+        return result

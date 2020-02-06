@@ -1,11 +1,12 @@
 from multiprocessing import Process
-from time import sleep
 from unittest import TestCase
 
+from threading import Thread
+from time import sleep
 from unittest.mock import MagicMock
 
-from minibatch import connectdb, stream, streaming
-from minibatch.contrib.kafka import KafkaSource
+from minibatch import connectdb, stream, streaming, make_emitter
+from minibatch.contrib.kafka import KafkaSource, KafkaSink
 from minibatch.tests.util import delete_database, LocalExecutor
 
 
@@ -24,13 +25,13 @@ class KafkaTests(TestCase):
         consumer = MagicMock()
         consumer.__iter__.return_value = [message]
         source._consumer = consumer
-        s = stream('test')
+        s = stream('test', url=self.url)
         s.attach(source)
 
         def consumer():
             url = str(self.url)
 
-            @streaming('test', executor=LocalExecutor())
+            @streaming('test', executor=LocalExecutor(), url=url)
             def process(window):
                 db = connectdb(url=url)
                 db.processed.insert(window.data)
@@ -42,3 +43,19 @@ class KafkaTests(TestCase):
 
         docs = list(self.db.processed.find())
         self.assertEqual(len(docs), 1)
+
+    def test_sink(self):
+        # we simply inject a mock KafkaProducer into the KafkaSink
+        s = stream('test', url=self.url)
+        s.append(dict(foo='baz'))
+        sink = KafkaSink('test')
+        producer = MagicMock()
+        sink._producer = producer
+        # create a threaded emitter that we can stop
+        em = make_emitter('test', url=self.url, sink=sink, emitfn=lambda v: v)
+        t = Thread(target=em.run)
+        t.start()
+        sleep(1)
+        em._stop = True
+        # check the  sink got called and forward to the mock KafkaProducer
+        producer.send.assert_called_with('test', value={'foo': 'baz'})
