@@ -1,3 +1,5 @@
+import time
+
 import datetime
 
 from minibatch import Buffer, Stream
@@ -32,8 +34,8 @@ class WindowEmitter(object):
 
     Use timestamp() to mark the stream (or the buffer data) for the next
     round. Use sleep() to set the amount of time to sleep. Depending on
-    the emitter's semantics this may be a e.g. a fixed interval or some function
-    of the data.
+    the emitter's semantics this may be a e.g. a fixed interval or some
+    function of the data.
 
     WindowEmitter implements several defaults:
 
@@ -43,15 +45,15 @@ class WindowEmitter(object):
                     the data returned by query() as not processed and deletes
                     the window
 
-    For examples of how to implement a custom emitter see TimeWindow, CountWindow
-    and SampleFunctionWindow.
+    For examples of how to implement a custom emitter see TimeWindow,
+    CountWindow and SampleFunctionWindow.
 
     Note there should only be one WindowEmitter per stream. This is a
-    a limitation of the Buffer's way of marking documentes as processed (a boolean
-    flag). This decision was made in favor of performance and simplicity.  Supporting
-    concurrent emitters would mean each Buffer object needs to keep track of which
-    emitter has processed its data and make sure Window objects are processed by
-    exactly one emitter.
+    a limitation of the Buffer's way of marking documentes as processed
+    (a boolean flag). This decision was made in favor of performance and
+    simplicity.  Supporting concurrent emitters would mean each Buffer object
+    needs to keep track of which emitter has processed its data and make
+    sure Window objects are processed by exactly one emitter.
     """
 
     def __init__(self, stream, interval=None, processfn=None, emitfn=None,
@@ -66,11 +68,11 @@ class WindowEmitter(object):
         self._delete_on_commit = True
 
     def query(self, *args):
-        raise NotImplemented()
+        raise NotImplementedError
 
     def window_ready(self):
         """ return a tuple of (ready, qargs) """
-        raise NotImplemented()
+        raise NotImplementedError
 
     def timestamp(self, query_args):
         self.stream.modify(query={}, last_read=datetime.datetime.now())
@@ -177,13 +179,14 @@ class FixedTimeWindow(WindowEmitter):
 
     def timestamp(self, *args):
         last_read, max_read = args
-        self.stream.modify(query=dict(last_read__gte=last_read), last_read=max_read)
+        self.stream.modify(query=dict(last_read__gte=last_read),
+                           last_read=max_read)
         self.stream.reload()
 
     def sleep(self):
-        import time
         # we have strict time windows, only sleep if we are up to date
-        if self.stream.last_read > datetime.datetime.now() - datetime.timedelta(seconds=self.interval):
+        previous = datetime.now() - datetime.timedelta(seconds=self.interval)
+        if (self.stream.last_read > previous):
             # sleep slightly longer to make sure the interval is complete
             # and all data had a chance to accumulate. if we don't do
             # this we might get empty windows on accident, resulting in
@@ -228,7 +231,9 @@ class RelaxedTimeWindow(WindowEmitter):
 
 class CountWindow(WindowEmitter):
     def window_ready(self):
-        qs = Buffer.objects.no_cache().filter(processed=False).limit(self.interval)
+        qs = (Buffer.objects.no_cache()
+              .filter(processed=False)
+              .limit(self.interval))
         self._data = list(qs)
         return len(self._data) >= self.interval, ()
 

@@ -1,7 +1,7 @@
 # some worker's process function
 from mongoengine.connection import disconnect
 
-from minibatch import setup, Stream, streaming
+from minibatch import connectdb, Stream, streaming
 
 
 def consumer():
@@ -12,7 +12,7 @@ def consumer():
     @streaming('test', size=5, keep=True)
     def myprocess(window):
         try:
-            db = setup(alias='consumer')
+            db = connectdb(alias='consumer')
             print("consuming ... {}".format(window.data))
             db.processed.insert_one({'data': window.data or {}})
         except Exception as e:
@@ -28,19 +28,21 @@ def producer(data):
     # sleep to simulate multiple time windows
     time.sleep(random.randrange(0, 1, 1) / 10.0)
     data.update({'pid': os.getpid()})
-    db = setup(alias='producer')
+    connectdb(alias='producer')
     stream_name = 'test'
     stream = Stream.get_or_create(stream_name)
     print("producing ... {}".format(data))
     stream.append(data)
 
+
 def clean():
-    db = setup()
+    db = connectdb()
     db.drop_collection('buffer')
     db.drop_collection('stream')
     db.drop_collection('window')
     db.drop_collection('processed')
     disconnect('minibatch')
+
 
 def main():
     from multiprocessing import Pool, Process
@@ -54,6 +56,6 @@ def main():
     pool.map(producer, data, 1)
     time.sleep(5)
     emitp.terminate()
-    db = setup()
+    db = connectdb()
     print("processed items:")
     print(list(doc for doc in db.processed.find()))

@@ -12,4 +12,9 @@ pypi: dist
 pypi-prod: dist
 	twine upload --repository pypi dist/*
 
+clean:
+	rm -rf ./dist
+	rm -rf ./build
 
+lint:
+	flake8 && echo CONGRATULATIONS all is OK

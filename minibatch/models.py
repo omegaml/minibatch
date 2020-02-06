@@ -1,13 +1,12 @@
-from concurrent.futures import ThreadPoolExecutor
-from threading import Thread
+from logging import warning
 
 import datetime
-from logging import warning
-from uuid import uuid4
-
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
-from mongoengine.fields import StringField, IntField, DateTimeField, ListField, DictField, BooleanField
+from mongoengine.fields import (StringField, IntField, DateTimeField,
+                                ListField, DictField, BooleanField)
+from threading import Thread
+from uuid import uuid4
 
 STATUS_INIT = 'initialize'
 STATUS_OPEN = 'open'
@@ -65,7 +64,8 @@ class Stream(Document):
     status = StringField(choices=STATUS_CHOICES, default=STATUS_INIT)
     created = DateTimeField(default=datetime.datetime.now)
     closed = DateTimeField(default=None)
-    interval = IntField(default=10)  # interval in seconds or count in #documents
+    # interval in seconds or count in #documents
+    interval = IntField(default=10)
     last_read = DateTimeField(default=datetime.datetime.now)
     meta = {
         'db_alias': 'minibatch',
@@ -87,8 +87,8 @@ class Stream(Document):
         non-blocking append to stream buffer
         """
         self.ensure_initialized()
-        doc = Buffer(stream=self.name,
-                     data=data).save(write_concern=dict(w=0, j=False))
+        Buffer(stream=self.name,
+               data=data).save(write_concern=dict(w=0, j=False))
 
     def attach(self, source, background=True):
         """
@@ -97,7 +97,8 @@ class Stream(Document):
         if not background:
             source.stream(self)
         else:
-            self._source_thread = t = Thread(target=source.stream, args=(self,))
+            self._source_thread = t = Thread(target=source.stream,
+                                             args=(self,))
             t.start()
         return self
 
@@ -111,9 +112,9 @@ class Stream(Document):
     def get_or_create(cls, name, url=None, **kwargs):
         # critical section
         # this may fail in concurrency situations
-        from minibatch import setup
+        from minibatch import connectdb
         try:
-            setup(alias='minibatch', url=url)
+            connectdb(alias='minibatch', url=url)
         except Exception as e:
             warning("Stream setup resulted in {}".format(str(e)))
         try:

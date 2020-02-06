@@ -1,8 +1,9 @@
 from multiprocessing import Process
-from time import sleep
 from unittest import TestCase
 
-from minibatch import Stream, Buffer, setup
+from time import sleep
+
+from minibatch import Stream, Buffer, connectdb
 from minibatch.tests.util import delete_database
 
 
@@ -10,7 +11,7 @@ class MiniBatchTests(TestCase):
     def setUp(self):
         self.url = 'mongodb://localhost/test'
         delete_database(url=self.url)
-        self.db = setup(url=self.url)
+        self.db = connectdb(url=self.url)
 
     def test_stream(self):
         """
@@ -29,16 +30,17 @@ class MiniBatchTests(TestCase):
         from minibatch import streaming
 
         def consumer():
-            # note the stream decorator blocks the consumer and runs the decorated
+            # streaming decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
             @streaming('test', size=2, keep=True)
             def myprocess(window):
                 try:
-                    db = setup(self.url)
+                    db = connectdb(self.url)
                     db.processed.insert_one({'data': window.data or {}})
                 except Exception as e:
                     print(e)
                 return window
+
         # start stream consumer
         proc = Process(target=consumer)
         proc.start()
@@ -62,16 +64,17 @@ class MiniBatchTests(TestCase):
         from minibatch import streaming
 
         def consumer():
-            # note the stream decorator blocks the consumer and runs the decorated
+            # note the stream decorator blocks the consumer and runs
             # function asynchronously upon the window criteria is satisfied
             @streaming('test', interval=1, keep=True)
             def myprocess(window):
                 try:
-                    db = setup(url=self.url)
+                    db = connectdb(url=self.url)
                     db.processed.insert_one({'data': window.data or {}})
                 except Exception as e:
                     print(e)
                 return window
+
         # start stream consumer
         proc = Process(target=consumer)
         proc.start()
@@ -96,16 +99,17 @@ class MiniBatchTests(TestCase):
         from minibatch import streaming
 
         def consumer():
-            # note the stream decorator blocks the consumer and runs the decorated
+            # note the stream decorator blocks the consumer and runs the
             # function asynchronously upon the window criteria is satisfied
             @streaming('test', interval=1, relaxed=True, keep=True)
             def myprocess(window):
                 try:
-                    db = setup(self.url)
+                    db = connectdb(self.url)
                     db.processed.insert_one({'data': window.data or {}})
                 except Exception as e:
                     print(e)
                 return window
+
         # start stream consumer
         proc = Process(target=consumer)
         proc.start()
@@ -122,4 +126,3 @@ class MiniBatchTests(TestCase):
         count = len(data)
         self.assertGreater(count, 5)
         self.assertTrue(all(len(w) >= 2 for w in data))
-

@@ -1,9 +1,13 @@
 import os
+from pathlib import Path
+
 from setuptools import setup
 
-README = open(os.path.join(os.path.dirname(__file__), 'README.rst')).read()
-version = open(os.path.join(os.path.dirname(__file__), 'minibatch', 'VERSION')).read()
+basedir = Path(os.path.dirname(__file__))
+README = open(basedir / 'README.rst').read()
+version = open(basedir / 'minibatch' / 'VERSION').read()
 
+kafka_deps = ['kafka-python==1.4.7']
 
 setup(name='minibatch',
       version=version,
@@ -18,5 +22,12 @@ setup(name='minibatch',
       packages=['minibatch'],
       zip_safe=False,
       install_requires=[
-          'mongoengine>=0.18', # Mongo 4.2 requires at least mongoengine 0.19 due to https://github.com/MongoEngine/mongoengine/pull/2160/files
-      ])
+          # Mongo 4.2 requires at least mongoengine 0.19 due to
+          # https://github.com/MongoEngine/mongoengine/pull/2160/files
+          'mongoengine>=0.18',
+      ],
+      extras_require={
+          'kafka': kafka_deps,
+          'all': kafka_deps
+      },
+      )
