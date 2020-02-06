@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Thread
+
 import datetime
 from logging import warning
 from uuid import uuid4
@@ -85,7 +88,24 @@ class Stream(Document):
         """
         self.ensure_initialized()
         doc = Buffer(stream=self.name,
-                     data=data).save()
+                     data=data).save(write_concern=dict(w=0, j=False))
+
+    def attach(self, source, background=True):
+        """
+        use an external producer to start streaming
+        """
+        if not background:
+            source.stream(self)
+        else:
+            self._source_thread = t = Thread(target=source.stream, args=(self,))
+            t.start()
+        return self
+
+    def stop(self):
+        if getattr(self, '_source_thread', None):
+            self._source_threads.stop()
+            self._source_thread = None
+        return self
 
     @classmethod
     def get_or_create(cls, name, url=None, **kwargs):
@@ -107,9 +127,3 @@ class Stream(Document):
         except NotUniqueError:
             stream = Stream.objects(name=name).no_cache().get()
         return stream
-
-
-
-
-
-
