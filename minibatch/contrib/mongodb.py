@@ -59,9 +59,7 @@ class MongoSource:
 
     def changes(self, N=1):
         latest_id = None
-        while True:
-            if self._cancel:
-                break
+        while not self._cancel:
             sortkey = {
                 'sort': [('_id', pymongo.ASCENDING)],
             }
@@ -72,7 +70,7 @@ class MongoSource:
                 }
             docs = self.collection.find(query, **sortkey).limit(N)
             for doc in docs:
-                latest_id = doc['_id']
+                latest_id = doc[self._idcol]
                 yield doc
             sleep(self._delay)
 

@@ -1,13 +1,13 @@
 Minibatch - Python Stream Processing for humans
-===============================================  
+===============================================
 
 Dependencies:
     * a running MongoDB accessible to minibatch
     * Python 3.x
-  
+
 omega|ml provides a straight-forward, Python-native approach to mini-batch streaming and complex-event
 processing that is easily scalable. Streaming primarily consists of
-  
+
 * a producer, which is some function inserting data into the stream
 * a consumer, which is some function retrieving data from the stream
 * transform and windowing functions to process the data in small batches
@@ -27,7 +27,7 @@ A few hightlights
 * no dependencies other than mongoengine, pymongo
 * extensible sources and sinks (already available: Kafka)
 
-Quick start  
+Quick start
 -----------
 
 1. Install and setup
@@ -56,7 +56,7 @@ Quick start
       source = KafkaSource('topic', urls=['kafka:port'])
       stream.attach(source)
 
-  
+
 3. Consume the stream
 
    .. code::
@@ -66,7 +66,7 @@ Quick start
 	    def myprocess(window):
 	        print(window.data)
 	    return window
-  
+
 	    =>
 	    [{'date': '2018-04-30T20:18:22.918060'}, {'date': '2018-04-30T20:18:23.481320'}]
 	    [{'date': '2018-04-30T20:18:24.041337'}, {'date': '2018-04-30T20:18:24.593545'}
@@ -75,13 +75,13 @@ Quick start
    `myprocess` is called for every N-tuple of items (`size=2`)  appended to the stream by the producer(s).
    The frequency is determined by the emitter strategy. This can be configured or changed for a custom
    emitter strategy, as shown in the next step.
-  
+
 4. Configure the emitter strategy
-  
+
    Note the `@streaming` decorator. It implements a blocking consumer that delivers batches
    of data according to some strategy implemented by a WindowEmitter. Currently `@streaming`
    provides the following interface:
-	  
+
     * `size=N` - uses the :code:`CountWindow` emitter
     * `interval=SECONDS` - uses the :code:`RelaxedTimeWindow` emitter
     * `interval=SECONDS, relaxed=False` - uses the :code:`FixedTimeWindow` emitter
@@ -96,6 +96,7 @@ Currently provided in :code:`minibatch.contrib`:
 
 * KafkaSource - attach a stream to a Apache Kafka topic
 * MQTTSource - attach to an MQTT broker
+* MongoSource - attach to a MongoDB collection
 
 Stream sources are arbitrary objects that support the :code:`stream()`
 method, as follows.
@@ -117,6 +118,7 @@ provided sinks in :code:`minibatch.contrib` are:
 
 * KafkaSink - forward messagess to a Apache Kafka topic
 * MQTTSink  - forward messages to an MQTT broker
+* MongoSink - forward messages to a MongoDB collection
 
 Stream sinks are arbitrary objects that support the :code:`put()`
 method, as follows.
@@ -131,9 +133,9 @@ method, as follows.
 
 Window emitters
 ---------------
- 
+
 minibatch provides the following window emitters out of the box:
-  
+
 * :code:`CountWindow` - emit fixed-sized windows. Waits until at least *n* messages are
    available before emitting a new window
 * :code:`FixedTimeWindow`- emit all messages retrieved within specific, time-fixed windows of
@@ -144,20 +146,20 @@ minibatch provides the following window emitters out of the box:
    window.
 
 
-Implementing a custom WindowEmitter  
------------------------------------  
+Implementing a custom WindowEmitter
+-----------------------------------
 
 Custom emitter strategies are implemented as a subclass to :code:`WindowEmitter`. The main methods
 to implement are
-  
+
 * :code:`window_ready` - returns the tuple :code:`(ready, data)`, where ready is True if there is data
      to emit
 * :code:`query` - returns the data for the new window. This function retrieves the :code:`data` part
      of the return value of :code:`window_ready`
-  
+
 See the API reference for more details.
-  
-.. code::  
+
+.. code::
 
     class SortedWindow(WindowEmitter):
         """
@@ -173,34 +175,34 @@ See the API reference for more details.
                         break
             self._data = data
             return len(self._data) == self.interval, ()
-  
+
         def query(self, *args):
             return self._data
-  
-  
-What is streaming and how does minibatch implement it?  
-------------------------------------------------------  
+
+
+What is streaming and how does minibatch implement it?
+------------------------------------------------------
 
 *Concepts*
- 
+
 Instead of directly connection producers and consumers, a producer sends messages to a stream. Think
 of a stream as an endless buffer, or a pipeline, that takes input from many producers on one end, and
 outputs messages to a consumer on the other end. This transfer of messages happens asynchronously, that
 is the producer can send messages to the stream independent of whether the consumer is ready to receive, and the  consumer can take messages from the stream independent of whether the producer is ready to send.
-  
+
 Unlike usual asynchronous messaging, however, we want the consumer to receive messages in small batches to optimize throughput. That is, we want the pipeline to *emit* messages only subject to some criteria
 of grouping messages, where each group is called a *mini-batch*. The function that determines whether the
 batching criteria is met (e.g. time elapsed, number of messages in the pipeline) is called *emitter strategy*,
 and the output it produces is called *window*.
-  
+
 Thus in order to connect producers and consumers we need the following parts to our streaming system:
-  
+
 * a :code:`Stream`, keeping metadata for the stream such as its name and when it was created, last read etc.
 * a :code:`Buffer` acting as the buffer where messages sent by producers are stored until the emitting
 * a :code:`WindowEmitter` implementing the emitter strategy
 * a :code:`Window` representing the output produced by the emitter strategy
-     
-.. note::  
+
+.. note::
 
     The producer accepts input from some external system, say an MQTT end point. The producer's responsibility is to enter the data into the streaming buffer.
     The consumer uses an emitter strategy to produce a Window of data that is then forwarded to the user's processing code.

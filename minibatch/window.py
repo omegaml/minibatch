@@ -1,8 +1,9 @@
+import time
 from concurrent.futures import Future, ProcessPoolExecutor
-from queue import Empty
 
 import datetime
 import logging
+from queue import Empty
 
 from minibatch import Buffer, Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
@@ -70,7 +71,7 @@ class WindowEmitter(object):
                  max_workers=None, stream=None, stream_url=None,
                  forwardfn=None, queue=None):
         self.stream_name = stream_name
-        self.interval = interval
+        self.interval = interval if interval is not None else 1
         self.emit_empty = emit_empty
         self.emitfn = emitfn
         self.processfn = processfn
@@ -112,7 +113,7 @@ class WindowEmitter(object):
     def undo(self, qs, window=None):
         for obj in qs:
             obj.modify(processed=False)
-        if window:
+        if window is not None and hasattr(window, 'delete'):
             window.delete()
         return qs
 
@@ -125,7 +126,8 @@ class WindowEmitter(object):
             return
         for obj in qs:
             obj.delete()
-        window.delete()
+        if window is not None and hasattr(window, 'delete'):
+            window.delete()
 
     def emit(self, qs):
         window = Window(stream=self.stream.name,
@@ -143,12 +145,11 @@ class WindowEmitter(object):
         future = MinibatchFuture(future, window=window)
         return future
 
-    def forward(self, window):
+    def forward(self, data):
         if self._forwardfn:
-            self._forwardfn(window.data)
+            self._forwardfn(data)
 
     def sleep(self):
-        import time
         time.sleep((self.interval or self.stream.interval) / 2.0)
 
     def should_stop(self):
@@ -157,51 +158,58 @@ class WindowEmitter(object):
                 self._stop = self._queue.get(block=False)
                 logger.debug("queue result {}".format( self._stop))
             except Empty:
-                pass
                 logger.debug("queue was empty")
         logger.debug("should stop")
         return self._stop
 
-    def run(self):
+    def run(self, blocking=True):
         while not self.should_stop():
-            logger.debug("testing window ready")
-            ready, query_args = self.window_ready()
-            if ready:
-                logger.debug("window ready")
-                qs = self.query(*query_args)
-                qs = self.process(qs)
-                # note self.emit is usin an async executor
-                # that returns a future
-                if qs or self.emit_empty:
-                    logger.debug("Emitting")
-                    future = self.emit(qs)
-                    logger.debug("got future {}".format(future))
-                    future['qs'] = qs
-                    future['query_args'] = query_args
-
-                    def emit_done(future):
-                        # this is called once upon future resolves
-                        future = MinibatchFuture(future)
-                        logger.debug("emit done {}".format(future))
-                        qs = future.qs
-                        window = future.window
-                        query_args = future.query_args
-                        try:
-                            window = future.result() or window
-                        except Exception:
-                            self.undo(qs, window)
-                        else:
-                            self.commit(qs, window)
-                            self.forward(window)
-                        finally:
-                            self.timestamp(*query_args)
-                        self.sleep()
-
-                    future.add_done_callback(emit_done)
+            self._run_once()
             logger.debug("sleeping")
             self.sleep()
             logger.debug("awoke")
-        logger.debug('stopped window run')
+            if not blocking:
+                break
+        logger.debug('stopped running')
+
+    def _run_once(self):
+        logger.debug("testing window ready")
+        ready, query_args = self.window_ready()
+        if ready:
+            logger.debug("window ready")
+            qs = self.query(*query_args)
+            qs = self.process(qs)
+            # note self.emit is usin an async executor
+            # that returns a future
+            if qs or self.emit_empty:
+                logger.debug("Emitting")
+                future = self.emit(qs)
+                logger.debug("got future {}".format(future))
+                future['qs'] = qs
+                future['query_args'] = query_args
+
+                def emit_done(future):
+                    # this is called once upon future resolves
+                    future = MinibatchFuture(future)
+                    logger.debug("emit done {}".format(future))
+                    qs = future.qs
+                    window = future.window
+                    query_args = future.query_args
+                    try:
+                        data = future.result() or window
+                    except Exception:
+                        self.undo(qs, window)
+                    else:
+                        self.commit(qs, window)
+                        if isinstance(data, Window):
+                            data = data.data
+                        self.forward(data)
+                    finally:
+                        self.timestamp(*query_args)
+                    self.sleep()
+
+                future.add_done_callback(emit_done)
+
 
 
 class FixedTimeWindow(WindowEmitter):
@@ -295,11 +303,12 @@ class CountWindow(WindowEmitter):
     def window_ready(self):
         fltkwargs = dict(stream=self.stream_name, processed=False)
         qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.interval)
-        self._data = list(qs)
-        return len(self._data) >= self.interval, ()
+        n_docs = qs.count(with_limit_and_skip=True)
+        self._qs = qs
+        return n_docs >= self.interval, ()
 
     def query(self, *args):
-        return self._data
+        return self._qs
 
     def timestamp(self, *args):
         self.stream.modify(query={}, last_read=datetime.datetime.now())
