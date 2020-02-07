@@ -6,9 +6,8 @@ try:
 
     from minibatch import stream, connectdb, reset_mongoengine
     from minibatch.contrib.omegaml import DatasetSource, DatasetSink
-    from minibatch.tests.util import LocalExecutor, delete_database
+    from minibatch.tests.util import delete_database
     from minibatch.window import CountWindow
-
 
     class OmegamlTests(TestCase):
         def setUp(self):
@@ -71,7 +70,5 @@ try:
             docs = list(db.processed.find())
             docs = list(om.datasets.collection('stream-sink').find())
             self.assertEqual(len(docs), 1)
-except:
+except Exception as e:  # noqa
     print("WARNING could not load omegaml dependencies => omegaml dataset source/sink are not supported")
-
-

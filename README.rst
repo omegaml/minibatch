@@ -89,6 +89,32 @@ Quick start
     * `workers=N` - set the number of workers to process the decorated function, defaults to number of CPUs
     * `executor=CLASS:Executor` - the asynchronous executor to use, defaults to :code:`concurrent.futures.ProcessPoolExecutor`
 
+
+5. Write a flask app as a streaming source
+
+   .. code::
+
+       def consumer(url):
+          @streaming('test-stream', url=url)
+          def processing(window):
+             ...
+
+       app = StreamingApp()
+       app.start_streaming(consumer)
+       app.run()
+
+       # in an other process, stream data
+       $ python
+       [] import minibatch as mb
+          stream = mb.stream('test-stream')
+          stream.append(dict(data='foobar')
+
+       Note there is no UI in this example, however the data is processed as
+       it comes in. To add a UI, specify using @app.route, as for any flask app,
+       write the processed data into a sink that the UI can access. For a
+       full example see help(minibatch.contrib.apps.omegaml.StreamingApp)
+
+
 Stream sources
 --------------
 

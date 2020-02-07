@@ -1,5 +1,6 @@
 from minibatch.contrib.mongodb import MongoSource, MongoSink
 
+
 class DatasetSource:
     """
     A omegaml dataset source
@@ -26,6 +27,7 @@ class DatasetSource:
         * if the dataset does not exist it will be created as a MongoDB
           native collection
     """
+
     def __init__(self, om, dataset, **source_kwargs):
         self.om = om
         self._dataset_name = dataset
@@ -75,6 +77,7 @@ class DatasetSink:
         * if the dataset does not exist it will be created as a MongoDB native
           collection
     """
+
     def __init__(self, om, dataset, **sink_kwargs):
         self.om = om
         self._dataset_name = dataset

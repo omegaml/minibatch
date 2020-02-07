@@ -76,7 +76,7 @@ class MiniBatchTests(TestCase):
         # give it some time to process
         logger.debug("waiting")
         self.sleep(10)
-        q.put(True) # stop @streaming
+        q.put(True)   # stop @streaming
         proc.join()
         # expect 5 entries, each of length 2
         data = list(doc for doc in self.db.processed.find())
@@ -239,7 +239,3 @@ class MiniBatchTests(TestCase):
 
         docs = list(Buffer.objects.filter())
         self.assertEqual(len(docs), 0)
-
-
-
-

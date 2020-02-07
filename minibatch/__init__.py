@@ -10,7 +10,7 @@ mongo_pid = None
 
 def streaming(name, interval=None, size=None, emitter=None,
               relaxed=True, keep=False, url=None, sink=None,
-              queue=None, **kwargs):
+              queue=None, source=None, **kwargs):
     """
     make and call a streaming function
 
@@ -57,8 +57,8 @@ def streaming(name, interval=None, size=None, emitter=None,
     def inner(fn):
         em = make_emitter(name, fn, interval=interval, size=size,
                           emitter=emitter, relaxed=relaxed, keep=keep,
-                          url=url, sink=sink, queue=queue, **kwargs)
-        em.persist(keep)
+                          url=url, sink=sink, queue=queue, source=source,
+                          **kwargs)
         em.run()
 
     inner.apply = lambda fn: inner(fn)
@@ -74,7 +74,8 @@ class IntegrityError(Exception):
 
 
 def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
-                 url=None, sink=None, emitter=None, keep=False, queue=None, **kwargs):
+                 url=None, sink=None, emitter=None, keep=False, queue=None,
+                 source=None, **kwargs):
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     if interval is None and size is None:
@@ -99,6 +100,9 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     else:
         raise ValueError("need either interval=, size= or emitter=")
     em.persist(keep)
+    if source:
+        # starts a background thread that inserts source messages into the Buffer
+        stream.attach(source, background=True)
     return em
 
 
@@ -118,9 +122,11 @@ def reset_mongoengine():
     # see https://github.com/MongoEngine/mongoengine/pull/2038
     # -- the implemented solution simply ensures MongoClients get recreated
     #    whenever needed
+
     def clean(d):
         if 'minibatch' in d:
             del d['minibatch']
+
     clean(connection._connection_settings)
     clean(connection._connections)
     clean(connection._dbs)
@@ -128,11 +134,19 @@ def reset_mongoengine():
     Buffer._collection = None
     Stream._collection = None
 
-def connectdb(url=None, dbname=None, alias=None, **kwargs):
+
+def authenticated_url(mongo_url, authSource='admin'):
+    if mongo_url and '?authSource' not in str(mongo_url):
+        mongo_url = '{}?authSource={}'.format(mongo_url, authSource)
+    return mongo_url
+
+
+def connectdb(url=None, dbname=None, alias=None, authSource='admin', **kwargs):
     from mongoengine import connect
     from mongoengine.connection import get_db, _connection_settings
 
-    url = url or os.environ.get('MONGO_URL')
+    url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL')
+    url = authenticated_url(url, authSource=authSource) if authSource else url
     alias = alias or 'minibatch'
     reset_mongoengine()
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)

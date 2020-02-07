@@ -1,9 +1,9 @@
-import time
-from concurrent.futures import Future, ProcessPoolExecutor
-
 import datetime
 import logging
+from concurrent.futures import Future, ProcessPoolExecutor
 from queue import Empty
+
+import time
 
 from minibatch import Buffer, Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
@@ -30,12 +30,18 @@ class WindowEmitter(object):
         window_ready() - called to determine if the buffer contains enough
                          data for a window.
         query()        - return the Buffer objects to process
-        process()      - process the data
-        emit()         - emit a Window
+        process()      - optionally process the data. By default his just
+                         marks the Buffer objects returned by query() as
+                         processed=True
+        emit()         - emit a Window, this calls the streaming function
+                         which may optionally return a result that can be
+                         forwarded to a sink, see forward()
         timestamp()    - timestamp the stream for the next processing
         commit()       - commit processed data back to the buffer. by
                          default this means removing the objects from the
                          buffer and deleting the window.
+        forward()      - if a forward function has been defined, call it with
+                         the result of emit()
         sleep()        - sleep until the next round
 
     Use timestamp() to mark the stream (or the buffer data) for the next
@@ -156,7 +162,7 @@ class WindowEmitter(object):
         if self._queue is not None:
             try:
                 stop_message = self._queue.get(block=False)
-                logger.debug("queue result {}".format( self._stop))
+                logger.debug("queue result {}".format(self._stop))
             except Empty:
                 logger.debug("queue was empty")
             else:
@@ -218,7 +224,6 @@ class WindowEmitter(object):
                     self.sleep()
 
                 future.add_done_callback(emit_done)
-
 
 
 class FixedTimeWindow(WindowEmitter):

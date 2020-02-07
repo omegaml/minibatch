@@ -7,10 +7,12 @@ basedir = Path(os.path.dirname(__file__))
 README = open(basedir / 'README.rst').read()
 version = open(basedir / 'minibatch' / 'VERSION').read()
 
+dev_deps = ['nose', 'twine', 'flake8']
+app_deps = ['flask', 'dash']
 kafka_deps = ['kafka-python==1.4.7']
 mqtt_deps = ['paho-mqtt==1.5.0']
 mongo_deps = ['pymongo==3.10.1']
-omega_deps = ['omegaml']
+omega_deps = ['omegaml[all-client]']
 
 setup(name='minibatch',
       version=version,
@@ -32,11 +34,12 @@ setup(name='minibatch',
           'dill',
       ],
       extras_require={
+          'apps': app_deps,
           'kafka': kafka_deps,
           'mqtt': mqtt_deps,
           'mongodb': mongo_deps,
           'omegaml': mongo_deps + omega_deps,
-          'all': kafka_deps + mqtt_deps + mongo_deps,
-          'devall': kafka_deps + mqtt_deps + mongo_deps + omega_deps,
+          'all': kafka_deps + mqtt_deps + mongo_deps + app_deps,
+          'dev': kafka_deps + mqtt_deps + mongo_deps + omega_deps + dev_deps,
       },
       )
