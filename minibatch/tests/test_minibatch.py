@@ -4,10 +4,8 @@ from unittest import TestCase
 import sys
 import time
 
-from minibatch import Stream, Buffer, connectdb, logger
+from minibatch import Stream, Buffer, connectdb, logger, reset_mongoengine
 from minibatch.tests.util import delete_database
-
-
 # use this for debugging subprocesses
 # logger = multiprocessing.log_to_stderr()
 # logger.setLevel('INFO')
@@ -28,6 +26,9 @@ class MiniBatchTests(TestCase):
         self.url = 'mongodb://localhost/test'
         delete_database(url=self.url)
         self.db = connectdb(url=self.url)
+
+    def tearDown(self):
+        reset_mongoengine()
 
     def sleep(self, seconds):
         sleepdot(seconds)
@@ -239,6 +240,6 @@ class MiniBatchTests(TestCase):
         docs = list(Buffer.objects.filter())
         self.assertEqual(len(docs), 0)
 
-    
+
 
 

@@ -1,10 +1,11 @@
 import json
 from unittest import TestCase
 
+from mongoengine import disconnect_all
 from time import sleep
 from unittest.mock import MagicMock
 
-from minibatch import connectdb, stream
+from minibatch import connectdb, stream, reset_mongoengine
 from minibatch.contrib.mqtt import MQTTSource, MQTTSink
 from minibatch.tests.util import delete_database
 
@@ -14,6 +15,9 @@ class MQTTTests(TestCase):
         self.url = 'mongodb://localhost/test'
         delete_database(url=self.url)
         self.db = connectdb(url=self.url)
+
+    def tearDown(self):
+        reset_mongoengine()
 
     def test_source(self):
         # we simply inject a mock MQTTClient into the MQTTSource

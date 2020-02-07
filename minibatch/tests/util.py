@@ -1,6 +1,6 @@
 from concurrent.futures._base import Executor, Future
 
-from minibatch import connectdb
+from minibatch import connectdb, reset_mongoengine
 
 
 def delete_database(url=None, dbname='test'):

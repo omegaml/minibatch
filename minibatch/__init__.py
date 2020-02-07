@@ -1,9 +1,8 @@
+import logging
 import os
 
-import logging
-
 from minibatch._version import version  # noqa
-from minibatch.models import Stream, Buffer  # noqa
+from minibatch.models import Stream, Buffer, Window  # noqa
 
 logger = logging.getLogger(__name__)
 mongo_pid = None
@@ -103,22 +102,28 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     return em
 
 
-def ensure_mongoclient_processlocal():
+def reset_mongoengine():
     # this is to avoid mongoengine's MongoClient instances in subprocesses
     # resulting in "MongoClient opened before fork" warning
     # the source of the problem is that mongoengine stores MongoClients in
     # a module-global dictionary. here we simply clear that dictionary before
     # the connections are re-created in a forked process
-    global mongo_pid
-    if mongo_pid is None:
-        # remember the main process that created the first MongoClient
-        mongo_pid = os.getpid()
-    elif mongo_pid != os.getpid():
-        # we're in a new process, disconnect
-        # note this doesn't actually disconnect it just deletes the MongoClient
-        from mongoengine import disconnect_all
-        disconnect_all()
-
+    # note this doesn't actually disconnect it just deletes the MongoClient
+    # see https://stackoverflow.com/a/49404748/890242
+    #     https://github.com/MongoEngine/mongoengine/issues/1599#issuecomment-374901186
+    from mongoengine import connection
+    # There is a fix in mongoengine 18.0 that is supposed to introduce the same
+    # behavior using disconnection_all(), however in some cases this is the
+    # actual source of the warning due to calling connection.close()
+    # see https://github.com/MongoEngine/mongoengine/pull/2038
+    # -- the implemented solution simply ensures MongoClients get recreated
+    #    whenever needed
+    connection._connection_settings = {}
+    connection._connections = {}
+    connection._dbs = {}
+    Window._collection = None
+    Buffer._collection = None
+    Stream._collection = None
 
 def connectdb(url=None, dbname=None, alias=None, **kwargs):
     from mongoengine import connect
@@ -126,7 +131,7 @@ def connectdb(url=None, dbname=None, alias=None, **kwargs):
 
     url = url or os.environ.get('MONGO_URL')
     alias = alias or 'minibatch'
-    ensure_mongoclient_processlocal()
+    reset_mongoengine()
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
     if 'default' not in _connection_settings:
         # workaround to https://github.com/MongoEngine/mongoengine/issues/2239

@@ -4,7 +4,7 @@ try:
     from omegaml import Omega
     from time import sleep
 
-    from minibatch import stream, connectdb
+    from minibatch import stream, connectdb, reset_mongoengine
     from minibatch.contrib.omegaml import DatasetSource, DatasetSink
     from minibatch.tests.util import LocalExecutor, delete_database
     from minibatch.window import CountWindow
@@ -16,6 +16,9 @@ try:
             delete_database(url=self.url)
             self.om = Omega(mongo_url=self.url)
             self.db = connectdb(self.url)
+
+        def tearDown(self):
+            reset_mongoengine()
 
         def test_source(self):
             om = self.om
