@@ -10,7 +10,8 @@ mongo_pid = None
 
 
 def streaming(name, interval=None, size=None, emitter=None,
-              relaxed=True, keep=False, url=None, sink=None, **kwargs):
+              relaxed=True, keep=False, url=None, sink=None,
+              queue=None, **kwargs):
     """
     make and call a streaming function
 
@@ -57,7 +58,7 @@ def streaming(name, interval=None, size=None, emitter=None,
     def inner(fn):
         em = make_emitter(name, fn, interval=interval, size=size,
                           emitter=emitter, relaxed=relaxed, keep=keep,
-                          url=url, sink=sink, **kwargs)
+                          url=url, sink=sink, queue=queue, **kwargs)
         em.persist(keep)
         em.run()
 
@@ -74,7 +75,7 @@ class IntegrityError(Exception):
 
 
 def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
-                 url=None, sink=None, emitter=None, keep=False, **kwargs):
+                 url=None, sink=None, emitter=None, keep=False, queue=None, **kwargs):
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     if interval is None and size is None:
@@ -84,7 +85,7 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
 
     emitfn._count = 0
     stream = Stream.get_or_create(name, interval=interval or size, url=url)
-    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn)
+    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue)
     if interval and emitter is None:
         if relaxed:
             em = RelaxedTimeWindow(name, interval=interval, **kwargs)

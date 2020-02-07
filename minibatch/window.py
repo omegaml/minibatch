@@ -1,4 +1,5 @@
 from concurrent.futures import Future, ProcessPoolExecutor
+from queue import Empty
 
 import datetime
 import logging
@@ -52,18 +53,22 @@ class WindowEmitter(object):
     For examples of how to implement a custom emitter see TimeWindow,
     CountWindow and SampleFunctionWindow.
 
-    Note there should only be one WindowEmitter per stream. This is a
-    a limitation of the Buffer's way of marking documentes as processed
-    (a boolean flag). This decision was made in favor of performance and
-    simplicity.  Supporting concurrent emitters would mean each Buffer object
-    needs to keep track of which emitter has processed its data and make
-    sure Window objects are processed by exactly one emitter.
+    Notes:
+        * there should only be one WindowEmitter per stream. This is a
+          a limitation of the Buffer's way of marking documentes as processed
+          (a boolean flag). This decision was made in favor of performance and
+          simplicity.  Supporting concurrent emitters would mean each Buffer object
+          needs to keep track of which emitter has processed its data and make
+          sure Window objects are processed by exactly one emitter.
+
+        * to stop the run() method, specify a threading or multiprocessing Queue
+          and send True
     """
 
     def __init__(self, stream_name, interval=None, processfn=None,
                  emitfn=None, emit_empty=False, executor=None,
                  max_workers=None, stream=None, stream_url=None,
-                 forwardfn=None):
+                 forwardfn=None, queue=None):
         self.stream_name = stream_name
         self.interval = interval
         self.emit_empty = emit_empty
@@ -75,6 +80,7 @@ class WindowEmitter(object):
         self._delete_on_commit = True
         self._forwardfn = forwardfn
         self._stop = False
+        self._queue = queue
 
     def query(self, *args):
         raise NotImplementedError
@@ -145,8 +151,19 @@ class WindowEmitter(object):
         import time
         time.sleep((self.interval or self.stream.interval) / 2.0)
 
+    def should_stop(self):
+        if self._queue is not None:
+            try:
+                self._stop = self._queue.get(block=False)
+                logger.debug("queue result {}".format( self._stop))
+            except Empty:
+                pass
+                logger.debug("queue was empty")
+        logger.debug("should stop")
+        return self._stop
+
     def run(self):
-        while not self._stop:
+        while not self.should_stop():
             logger.debug("testing window ready")
             ready, query_args = self.window_ready()
             if ready:
@@ -184,6 +201,7 @@ class WindowEmitter(object):
             logger.debug("sleeping")
             self.sleep()
             logger.debug("awoke")
+        logger.debug('stopped window run')
 
 
 class FixedTimeWindow(WindowEmitter):
@@ -206,7 +224,7 @@ class FixedTimeWindow(WindowEmitter):
     """
 
     def __init__(self, *args, **kwargs):
-        super(FixedTimeWindow, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.emit_empty = True
 
     def window_ready(self):

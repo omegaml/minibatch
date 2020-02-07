@@ -1,5 +1,6 @@
-from kafka import KafkaConsumer, KafkaProducer
 from json import loads, dumps
+
+from kafka import KafkaConsumer, KafkaProducer
 
 
 class KafkaSource:
