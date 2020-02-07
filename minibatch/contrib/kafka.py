@@ -38,6 +38,7 @@ class KafkaSource:
         )
         self.configs.update(configs)
         self._consumer = None
+        self._cancel = False
 
     @property
     def consumer(self):
@@ -46,8 +47,14 @@ class KafkaSource:
         return self._consumer
 
     def stream(self, stream):
+        self._cancel = False
         for message in self.consumer:
+            if self._cancel:
+                break
             stream.append(message.value)
+
+    def cancel(self):
+        self._cancel = True
 
 
 class KafkaSink:

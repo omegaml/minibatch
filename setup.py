@@ -8,6 +8,7 @@ README = open(basedir / 'README.rst').read()
 version = open(basedir / 'minibatch' / 'VERSION').read()
 
 kafka_deps = ['kafka-python==1.4.7']
+mqtt_deps = ['paho-mqtt==1.5.0']
 
 setup(name='minibatch',
       version=version,
@@ -29,6 +30,7 @@ setup(name='minibatch',
       ],
       extras_require={
           'kafka': kafka_deps,
-          'all': kafka_deps
+          'mqtt': mqtt_deps,
+          'all': kafka_deps + mqtt_deps
       },
       )

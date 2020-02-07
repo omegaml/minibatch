@@ -47,7 +47,8 @@ Quick start
             stream.append({'date': datetime.datetime.now().isoformat()})
             sleep(.5)
 
-   support for Kafka as a source
+   Currently there is support for Kafka and MQTT sources. However
+   arbitrary other sources can be added.
 
    .. code::
 
@@ -94,6 +95,7 @@ Stream sources
 Currently provided in :code:`minibatch.contrib`:
 
 * KafkaSource - attach a stream to a Apache Kafka topic
+* MQTTSource - attach to an MQTT broker
 
 Stream sources are arbitrary objects that support the :code:`stream()`
 method, as follows.
@@ -114,6 +116,7 @@ The result of a stream can be forwarded to a sink. Currently
 provided sinks in :code:`minibatch.contrib` are:
 
 * KafkaSink - forward messagess to a Apache Kafka topic
+* MQTTSink  - forward messages to an MQTT broker
 
 Stream sinks are arbitrary objects that support the :code:`put()`
 method, as follows.

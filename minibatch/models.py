@@ -94,19 +94,18 @@ class Stream(Document):
         """
         use an external producer to start streaming
         """
+        self._stream_source = source
         if not background:
             source.stream(self)
         else:
             self._source_thread = t = Thread(target=source.stream,
                                              args=(self,))
             t.start()
-        return self
 
     def stop(self):
-        if getattr(self, '_source_thread', None):
-            self._source_thread.stop()
-            self._source_thread = None
-        return self
+        source = getattr(self, '_stream_source', None)
+        if source:
+            source.cancel()
 
     @classmethod
     def get_or_create(cls, name, url=None, **kwargs):
