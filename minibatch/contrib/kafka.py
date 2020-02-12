@@ -77,9 +77,6 @@ class KafkaSink:
             urls = [urls]
         self.configs = dict(
             bootstrap_servers=urls or ['localhost:9092'],
-            auto_offset_reset='earliest',
-            enable_auto_commit=True,
-            group_id='group',
             value_serializer=lambda x: dumps(x).encode('utf-8')
         )
         self.configs.update(configs)
