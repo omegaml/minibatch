@@ -1,4 +1,4 @@
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 from unittest import TestCase
 
 from threading import Thread
@@ -28,17 +28,19 @@ class KafkaTests(TestCase):
         s = stream('test', url=self.url)
         s.attach(source)
 
-        def consumer():
+        def consumer(q):
             url = str(self.url)
 
-            @streaming('test', executor=LocalExecutor(), url=url)
+            @streaming('test', executor=LocalExecutor(), url=url, queue=q)
             def process(window):
                 db = connectdb(url=url)
                 db.processed.insert(window.data)
 
-        p = Process(target=consumer)
+        q = Queue()
+        p = Process(target=consumer, args=(q,))
         p.start()
         sleep(1)
+        q.put(True)
         p.terminate()
 
         docs = list(self.db.processed.find())

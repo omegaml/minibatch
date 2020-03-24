@@ -1,4 +1,4 @@
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 from unittest import TestCase
 
 import sys
@@ -46,13 +46,13 @@ class MiniBatchTests(TestCase):
         """
         from minibatch import streaming
 
-        def consumer():
+        def consumer(q):
             logger.debug("starting consumer on {self.url}".format(**locals()))
             url = str(self.url)
 
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
-            @streaming('test', size=2, keep=True, url=self.url)
+            @streaming('test', size=2, keep=True, url=self.url, queue=q)
             def myprocess(window):
                 logger.debug("*** processing")
                 try:
@@ -63,7 +63,8 @@ class MiniBatchTests(TestCase):
                     raise
 
         # start stream consumer
-        proc = Process(target=consumer)
+        q = Queue()
+        proc = Process(target=consumer, args=(q,))
         proc.start()
         # fill stream
         stream = Stream.get_or_create('test', url=self.url)
@@ -72,6 +73,7 @@ class MiniBatchTests(TestCase):
         # give it some time to process
         logger.debug("waiting")
         self.sleep(10)
+        q.put(True)
         proc.terminate()
         # expect 5 entries, each of length 2
         data = list(doc for doc in self.db.processed.find())
@@ -85,12 +87,12 @@ class MiniBatchTests(TestCase):
         """
         from minibatch import streaming
 
-        def consumer():
+        def consumer(q):
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
             url = str(self.url)
 
-            @streaming('test', interval=1, keep=True)
+            @streaming('test', interval=1, keep=True, queue=q)
             def myprocess(window):
                 try:
                     db = connectdb(url=url)
@@ -100,7 +102,8 @@ class MiniBatchTests(TestCase):
                 return window
 
         # start stream consumer
-        proc = Process(target=consumer)
+        q = Queue()
+        proc = Process(target=consumer, args=(q,))
         proc.start()
         # fill stream
         stream = Stream.get_or_create('test', url=self.url)
@@ -109,6 +112,7 @@ class MiniBatchTests(TestCase):
             self.sleep(.5)
         # give it some time to process
         self.sleep(5)
+        q.put(True)
         proc.terminate()
         # expect at least 5 entries (10 x .5 = 5 seconds), each of length 1-2
         data = list(doc for doc in self.db.processed.find())
@@ -122,7 +126,7 @@ class MiniBatchTests(TestCase):
         """
         from minibatch import streaming
 
-        def consumer():
+        def consumer(q):
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
             url = str(self.url)
@@ -137,7 +141,8 @@ class MiniBatchTests(TestCase):
                 return window
 
         # start stream consumer
-        proc = Process(target=consumer)
+        q = Queue()
+        proc = Process(target=consumer, args=(q,))
         proc.start()
         # fill stream
         stream = Stream.get_or_create('test', url=self.url)
@@ -146,6 +151,7 @@ class MiniBatchTests(TestCase):
             self.sleep(.5)
         # give it some time to process
         self.sleep(5)
+        q.put(True)
         proc.terminate()
         # expect at least 5 entries (10 x .5 = 5 seconds), each of length 1-2
         data = list(doc for doc in self.db.processed.find())
@@ -162,13 +168,13 @@ class MiniBatchTests(TestCase):
         MiniBatchTests._do_test_slow_emitfn.__doc__ = MiniBatchTests._do_test_slow_emitfn.__doc__.format(
             workers=workers)
 
-        def consumer(workers):
+        def consumer(workers, q):
             logger.debug("starting consumer on={self.url} workers={workers}".format(**locals()))
             url = str(self.url)
 
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
-            @streaming('test', size=2, keep=True, url=self.url, max_workers=workers)
+            @streaming('test', size=2, keep=True, url=self.url, max_workers=workers, queue=q)
             def myprocess(window):
                 logger.debug("*** processing {}".format(window.data))
                 from minibatch import connectdb
@@ -191,7 +197,8 @@ class MiniBatchTests(TestCase):
 
         # start stream consumer
         # -- use just one worker, we expect to fail
-        proc = Process(target=consumer, args=(workers,))
+        q = Queue()
+        proc = Process(target=consumer, args=(workers, q))
         proc.start()
         # fill stream
         stream = Stream.get_or_create('test', url=self.url)
@@ -202,6 +209,7 @@ class MiniBatchTests(TestCase):
         # note it takes at least 25 seconds using 1 worker (5 windows, 5 seconds)
         # so we expect to fail
         self.sleep(12)
+        q.put(True)
         proc.terminate()
         if expect_fail:
             with self.assertRaises(AssertionError):
