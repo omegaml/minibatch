@@ -5,9 +5,10 @@ from unittest import TestCase
 from datetime import datetime
 from time import sleep
 
-from minibatch import connectdb, streaming, stream, make_emitter
+from minibatch import connectdb, streaming, stream, make_emitter, Stream, Buffer
 from minibatch.contrib.mongodb import MongoSource, MongoSink
 from minibatch.tests.util import delete_database, LocalExecutor
+from minibatch.window import CountWindow
 
 
 class MongodbTests(TestCase):
@@ -89,8 +90,15 @@ class MongodbTests(TestCase):
         q.put(True)
         p.terminate()
 
+        # check buffer is empty
+        buffered_docs = list(Buffer.objects.filter())
+        self.assertEqual(len(buffered_docs), 0)
+
+        # return processed docs (in sink)
         docs = list(self.db.processed.find())
         return docs
+
+
 
 
 

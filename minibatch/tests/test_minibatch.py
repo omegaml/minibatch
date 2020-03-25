@@ -11,6 +11,8 @@ from minibatch.tests.util import delete_database
 # use this for debugging subprocesses
 # logger = multiprocessing.log_to_stderr()
 # logger.setLevel('INFO')
+from minibatch.window import CountWindow
+
 
 def sleepdot(seconds=1):
     mult = 10  # ensure integers
@@ -224,3 +226,19 @@ class MiniBatchTests(TestCase):
 
     def test_slow_emitfn_parallel_workers(self):
         self._do_test_slow_emitfn(workers=5, expect_fail=False, timeout=12)
+
+    def test_buffer_cleaned(self):
+        stream = Stream.get_or_create('test', url=self.url)
+        stream.append({'foo': 'bar1'})
+        stream.append({'foo': 'bar2'})
+
+        em = CountWindow('test')
+        em._run_once()
+        em._run_once()
+
+        docs = list(Buffer.objects.filter())
+        self.assertEqual(len(docs), 0)
+
+    
+
+
