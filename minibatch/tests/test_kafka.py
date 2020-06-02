@@ -41,7 +41,7 @@ class KafkaTests(TestCase):
         p.start()
         sleep(1)
         q.put(True)
-        p.terminate()
+        p.join()
 
         docs = list(self.db.processed.find())
         self.assertEqual(len(docs), 1)

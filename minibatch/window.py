@@ -155,10 +155,13 @@ class WindowEmitter(object):
     def should_stop(self):
         if self._queue is not None:
             try:
-                self._stop = self._queue.get(block=False)
+                stop_message = self._queue.get(block=False)
                 logger.debug("queue result {}".format( self._stop))
             except Empty:
                 logger.debug("queue was empty")
+            else:
+                if stop_message:
+                    self._stop = True
         logger.debug("should stop")
         return self._stop
 
@@ -170,6 +173,12 @@ class WindowEmitter(object):
             logger.debug("awoke")
             if not blocking:
                 break
+        if blocking:
+            # if we did not block, keep executor running
+            try:
+                self.executor.shutdown(wait=True)
+            except Exception as e:
+                logger.debug(e)
         logger.debug('stopped running')
 
     def _run_once(self):

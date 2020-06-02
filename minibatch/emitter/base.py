@@ -147,6 +147,9 @@ class Emitter(object):
         import time
         time.sleep(.01)
 
+    def stop(self):
+        self._stop = True
+
     def run(self):
         while not self._stop:
             logger.debug("testing window ready")
@@ -186,3 +189,4 @@ class Emitter(object):
             logger.debug("sleeping")
             self.sleep()
             logger.debug("awoke")
+        self.executor.shutdown(wait=True)

@@ -118,9 +118,12 @@ def reset_mongoengine():
     # see https://github.com/MongoEngine/mongoengine/pull/2038
     # -- the implemented solution simply ensures MongoClients get recreated
     #    whenever needed
-    connection._connection_settings = {}
-    connection._connections = {}
-    connection._dbs = {}
+    def clean(d):
+        if 'minibatch' in d:
+            del d['minibatch']
+    clean(connection._connection_settings)
+    clean(connection._connections)
+    clean(connection._dbs)
     Window._collection = None
     Buffer._collection = None
     Stream._collection = None

@@ -1,7 +1,6 @@
 import json
 from unittest import TestCase
 
-from mongoengine import disconnect_all
 from time import sleep
 from unittest.mock import MagicMock
 
