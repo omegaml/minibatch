@@ -51,7 +51,7 @@ class Buffer(Document):
     }
 
     def __unicode__(self):
-        return u"Buffer [%s] %s" % (self.created, self.data)
+        return u"Buffer created=[%s] processed=%s data=%s" % (self.created, self.processed, self.data)
 
 
 class Stream(Document):
@@ -88,7 +88,7 @@ class Stream(Document):
         """
         self.ensure_initialized()
         Buffer(stream=self.name,
-               data=data).save(write_concern=dict(w=0, j=False))
+               data=data).save(write_concern=dict(w=0))
 
     def attach(self, source, background=True):
         """

@@ -10,7 +10,7 @@ version = open(basedir / 'minibatch' / 'VERSION').read()
 kafka_deps = ['kafka-python==1.4.7']
 mqtt_deps = ['paho-mqtt==1.5.0']
 mongo_deps = ['pymongo==3.10.1']
-omega_deps = ['omegaml==0.12.1']
+omega_deps = ['omegaml']
 
 setup(name='minibatch',
       version=version,
@@ -27,7 +27,8 @@ setup(name='minibatch',
       install_requires=[
           # Mongo 4.2 requires at least mongoengine 0.19 due to
           # https://github.com/MongoEngine/mongoengine/pull/2160/files
-          'mongoengine>=0.18',
+          # omegaml currently only supports <0.19
+          'mongoengine>=0.18,<0.19',
           'dill',
       ],
       extras_require={

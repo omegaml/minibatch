@@ -31,6 +31,8 @@ class DatasetSource:
         self._dataset_name = dataset
         self._source = None
         self._source_kwargs = source_kwargs
+        # ensure the source dataset exists
+        assert self.source is not None
 
     @property
     def source(self):

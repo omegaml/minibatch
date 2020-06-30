@@ -4,10 +4,8 @@ from unittest import TestCase
 import sys
 import time
 
-from minibatch import Stream, Buffer, connectdb, logger
+from minibatch import Stream, Buffer, connectdb, logger, reset_mongoengine
 from minibatch.tests.util import delete_database
-
-
 # use this for debugging subprocesses
 # logger = multiprocessing.log_to_stderr()
 # logger.setLevel('INFO')
@@ -28,6 +26,9 @@ class MiniBatchTests(TestCase):
         self.url = 'mongodb://localhost/test'
         delete_database(url=self.url)
         self.db = connectdb(url=self.url)
+
+    def tearDown(self):
+        reset_mongoengine()
 
     def sleep(self, seconds):
         sleepdot(seconds)
@@ -66,17 +67,17 @@ class MiniBatchTests(TestCase):
 
         # start stream consumer
         q = Queue()
+        stream = Stream.get_or_create('test', url=self.url)
         proc = Process(target=consumer, args=(q,))
         proc.start()
         # fill stream
-        stream = Stream.get_or_create('test', url=self.url)
         for i in range(10):
             stream.append({'index': i})
         # give it some time to process
         logger.debug("waiting")
         self.sleep(10)
-        q.put(True)
-        proc.terminate()
+        q.put(True) # stop @streaming
+        proc.join()
         # expect 5 entries, each of length 2
         data = list(doc for doc in self.db.processed.find())
         count = len(data)
@@ -85,7 +86,7 @@ class MiniBatchTests(TestCase):
 
     def test_timed_window(self):
         """
-        Test batch windows of fixed sizes work ok
+        Test timed windows work ok
         """
         from minibatch import streaming
 
@@ -105,17 +106,17 @@ class MiniBatchTests(TestCase):
 
         # start stream consumer
         q = Queue()
+        stream = Stream.get_or_create('test', url=self.url)
         proc = Process(target=consumer, args=(q,))
         proc.start()
         # fill stream
-        stream = Stream.get_or_create('test', url=self.url)
         for i in range(10):
             stream.append({'index': i})
             self.sleep(.5)
         # give it some time to process
         self.sleep(5)
         q.put(True)
-        proc.terminate()
+        proc.join()
         # expect at least 5 entries (10 x .5 = 5 seconds), each of length 1-2
         data = list(doc for doc in self.db.processed.find())
         count = len(data)
@@ -124,7 +125,7 @@ class MiniBatchTests(TestCase):
 
     def test_timed_window_relaxed(self):
         """
-        Test batch windows of fixed sizes work ok
+        Test relaxed timed windows work ok
         """
         from minibatch import streaming
 
@@ -133,7 +134,7 @@ class MiniBatchTests(TestCase):
             # function asynchronously upon the window criteria is satisfied
             url = str(self.url)
 
-            @streaming('test', interval=1, relaxed=True, keep=True, url=url)
+            @streaming('test', interval=1, relaxed=True, keep=True, queue=q, url=url)
             def myprocess(window):
                 try:
                     db = connectdb(url)
@@ -144,17 +145,17 @@ class MiniBatchTests(TestCase):
 
         # start stream consumer
         q = Queue()
+        stream = Stream.get_or_create('test', url=self.url)
         proc = Process(target=consumer, args=(q,))
         proc.start()
         # fill stream
-        stream = Stream.get_or_create('test', url=self.url)
         for i in range(10):
             stream.append({'index': i})
             self.sleep(.5)
         # give it some time to process
         self.sleep(5)
         q.put(True)
-        proc.terminate()
+        proc.join()
         # expect at least 5 entries (10 x .5 = 5 seconds), each of length 1-2
         data = list(doc for doc in self.db.processed.find())
         count = len(data)
@@ -199,11 +200,11 @@ class MiniBatchTests(TestCase):
 
         # start stream consumer
         # -- use just one worker, we expect to fail
+        stream = Stream.get_or_create('test', url=self.url)
         q = Queue()
         proc = Process(target=consumer, args=(workers, q))
         proc.start()
         # fill stream
-        stream = Stream.get_or_create('test', url=self.url)
         for i in range(10):
             stream.append({'index': i})
         # give it some time to process
@@ -212,7 +213,6 @@ class MiniBatchTests(TestCase):
         # so we expect to fail
         self.sleep(12)
         q.put(True)
-        proc.terminate()
         if expect_fail:
             with self.assertRaises(AssertionError):
                 check()
@@ -220,6 +220,7 @@ class MiniBatchTests(TestCase):
             check()
         # wait for everything to terminate, avoid stream corruption in next test
         self.sleep(timeout)
+        proc.join()
 
     def test_slow_emitfn_single_worker(self):
         self._do_test_slow_emitfn(workers=1, expect_fail=True, timeout=30)
@@ -239,6 +240,6 @@ class MiniBatchTests(TestCase):
         docs = list(Buffer.objects.filter())
         self.assertEqual(len(docs), 0)
 
-    
+
 
 
