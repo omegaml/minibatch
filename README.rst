@@ -1,20 +1,26 @@
-Minibatch - Python Stream Processing for humans
+minibatch - Python Stream Processing for humans
 ===============================================
 
-![](https://github.com/omegaml/minibatch/workflows/Test%20with%20pytest/badge.svg)
+|build badge|
+
+.. |build badge| image:: https://github.com/omegaml/minibatch/workflows/Python%20package/badge.svg
+.. _CONTRIBUTING.md: https://github.com/omegaml/minibatch/blog/master/CONTRIBUTING.md
 
 Dependencies:
     * a running MongoDB accessible to minibatch
     * Python 3.x
     * see extras & optional dependencies below for specific requirements
 
-omega|ml provides a straight-forward, Python-native approach to mini-batch streaming and complex-event
+minibatch provides a straight-forward, Python-native approach to mini-batch streaming and complex-event
 processing that is easily scalable. Streaming primarily consists of
 
 * a producer, which is some function inserting data into the stream
 * a consumer, which is some function retrieving data from the stream
 * transform and windowing functions to process the data in small batches and in parallel
 * a Flask
+
+minibatch is an integral part of `omega|ml <https://github.com/omegaml/omegaml>`_, however also works independently. omega|ml is the Python DataOps and MLOps
+platform for humans.
 
 Features
 --------
@@ -30,6 +36,9 @@ A few hightlights
 * producer and consumer stream code runs anywhere
 * no dependencies other than mongoengine, pymongo
 * extensible sources and sinks (already available: Kafka, MQTT, MongoDB collections, omega|ml datasets)
+
+Why is it called *mini*batch? Because it focuses on getting things done by using existing
+technology, and making it easy to use this techonlogy. It may be minimalistic in approach, but maximises results.
 
 Quick start
 -----------
@@ -310,6 +319,12 @@ Here are a couple of ideas to extend minibatch. Contributions are welcome.
 * distributed processing of windows via distributed framework such as celery, ray, dask
 * extend emitters by typical stream operations e.g. to support operations like count, filter, map, groupby, merge, join
 * add other storage backends (e.g. Redis, or some Python-native in-memory db that provides network access and an easy to use ORM layer, like mongoengine does for MongoDB)
+
+Contributing
+------------
+
+We welcome any contributions - examples, issues, bug reports, documentation, code. Please see `CONTRIBUTING.md`_
+for details. All submitted work is licensed under the MIT license, see LICENSE file for details.
 
 License
 -------
