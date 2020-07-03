@@ -1,16 +1,26 @@
-Minibatch - Python Stream Processing for humans
+minibatch - Python Stream Processing for humans
 ===============================================
+
+|build badge|
+
+.. |build badge| image:: https://github.com/omegaml/minibatch/workflows/Python%20package/badge.svg
+.. _CONTRIBUTING.md: https://github.com/omegaml/minibatch/blog/master/CONTRIBUTING.md
 
 Dependencies:
     * a running MongoDB accessible to minibatch
     * Python 3.x
+    * see extras & optional dependencies below for specific requirements
 
-omega|ml provides a straight-forward, Python-native approach to mini-batch streaming and complex-event
+minibatch provides a straight-forward, Python-native approach to mini-batch streaming and complex-event
 processing that is easily scalable. Streaming primarily consists of
 
 * a producer, which is some function inserting data into the stream
 * a consumer, which is some function retrieving data from the stream
-* transform and windowing functions to process the data in small batches
+* transform and windowing functions to process the data in small batches and in parallel
+* a Flask
+
+minibatch is an integral part of `omega|ml <https://github.com/omegaml/omegaml>`_, however also works independently. omega|ml is the Python DataOps and MLOps
+platform for humans.
 
 Features
 --------
@@ -25,7 +35,10 @@ A few hightlights
 * creating a stream and appending data is just 2 lines of code
 * producer and consumer stream code runs anywhere
 * no dependencies other than mongoengine, pymongo
-* extensible sources and sinks (already available: Kafka)
+* extensible sources and sinks (already available: Kafka, MQTT, MongoDB collections, omega|ml datasets)
+
+Why is it called *mini*batch? Because it focuses on getting things done by using existing
+technology, and making it easy to use this techonlogy. It may be minimalistic in approach, but maximises results.
 
 Quick start
 -----------
@@ -36,6 +49,9 @@ Quick start
 
       $ pip install minibatch
       $ docker run -d -p 27017:27017 mongo
+
+   See extras & optional dependencies below to select specific packages according
+   to your deployment needs, e.g. for MQTT, Kafka, omega|ml
 
 2. Create a stream producer or attach to a source
 
@@ -92,16 +108,24 @@ Quick start
 
 5. Write a flask app as a streaming source
 
+   This is a simple helloworld-style streaming application that is fully
+   functional and distributable.
+
    .. code::
 
+       # app.py
        def consumer(url):
           @streaming('test-stream', url=url)
           def processing(window):
-             ...
+             ... # whatever processing you need to do
 
-       app = StreamingApp()
-       app.start_streaming(consumer)
-       app.run()
+       if __name__ == '__main__':
+           app = StreamingApp()
+           app.start_streaming(consumer)
+           app.run()
+
+       # run the app (check status at http://localhost:5000/status)
+       $ python app.py
 
        # in an other process, stream data
        $ python
@@ -115,6 +139,7 @@ Quick start
        full example see help(minibatch.contrib.apps.omegaml.StreamingApp)
 
 
+
 Stream sources
 --------------
 
@@ -123,6 +148,7 @@ Currently provided in :code:`minibatch.contrib`:
 * KafkaSource - attach a stream to a Apache Kafka topic
 * MQTTSource - attach to an MQTT broker
 * MongoSource - attach to a MongoDB collection
+* DatasetSource - attach to a omega|ml dataset
 
 Stream sources are arbitrary objects that support the :code:`stream()`
 method, as follows.
@@ -145,6 +171,7 @@ provided sinks in :code:`minibatch.contrib` are:
 * KafkaSink - forward messagess to a Apache Kafka topic
 * MQTTSink  - forward messages to an MQTT broker
 * MongoSink - forward messages to a MongoDB collection
+* DatasetSink - write to a omega|ml dataset
 
 Stream sinks are arbitrary objects that support the :code:`put()`
 method, as follows.
@@ -260,6 +287,27 @@ Notes:
   overriding the `process()`, `emit()` and `commit()` methods for each of the above steps
   2/3/4, respectively.
 
+Extras & optional dependencies
+------------------------------
+
+minibatch provides the following pip install extras, which come with some
+additional dependencies. Extras are installed by running
+
+.. code::
+
+    $ pip install minibatch[<extra>|all]
+
+Available extras are:
+
+* :code:`apps` - adds StreamingApp for easy development & deployment of producers & consumers
+* :code:`kafka` - to work with Kafka as a source or a sink
+* :code:`mqtt` - to work with an MQTT broker as a source or a sink
+* :code:`mongodb` - to work with MongoDB as a source or a sink
+* :code:`omegaml` - to work with omega|ml datasets as a source or a sink
+* :code:`all` - all of the above
+* :code:`dev` - all of the above plus a few development packages
+
+
 Further development
 -------------------
 
@@ -271,6 +319,12 @@ Here are a couple of ideas to extend minibatch. Contributions are welcome.
 * distributed processing of windows via distributed framework such as celery, ray, dask
 * extend emitters by typical stream operations e.g. to support operations like count, filter, map, groupby, merge, join
 * add other storage backends (e.g. Redis, or some Python-native in-memory db that provides network access and an easy to use ORM layer, like mongoengine does for MongoDB)
+
+Contributing
+------------
+
+We welcome any contributions - examples, issues, bug reports, documentation, code. Please see `CONTRIBUTING.md`_
+for details. All submitted work is licensed under the MIT license, see LICENSE file for details.
 
 License
 -------
