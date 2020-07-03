@@ -1,11 +1,10 @@
+from datetime import datetime
 from multiprocessing import Process
 
-from datetime import datetime
 from time import sleep
 
 from minibatch import connectdb, streaming, stream
 from minibatch.contrib.mongodb import MongoSource, MongoSink
-from minibatch.contrib.mqtt import MQTTSource, MQTTSink
 from minibatch.example.util import clean
 
 
@@ -25,7 +24,7 @@ def main():
     print("setting up")
     clean()
     # setup mqtt source and producer
-    url  = 'mongodb://localhost/test'
+    url = 'mongodb://localhost/test'
     db = connectdb(url=url)
     source_coll = db['source']
     sink_coll = db['processed']

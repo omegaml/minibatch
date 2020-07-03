@@ -127,3 +127,9 @@ class Stream(Document):
         except NotUniqueError:
             stream = Stream.objects(name=name).no_cache().get()
         return stream
+
+    def buffer(self, **kwargs):
+        return Buffer.objects.no_cache().filter(**{'stream': self.name, **kwargs})
+
+    def window(self, **kwargs):
+        return Window.objects.no_cache().filter(**{'stream': self.name, **kwargs})

@@ -1,8 +1,8 @@
+from datetime import datetime
 from multiprocessing import Process, Queue
+from threading import Thread
 from unittest import TestCase
 
-from datetime import datetime
-from threading import Thread
 from time import sleep
 
 from minibatch import connectdb, streaming, stream, make_emitter, Buffer, reset_mongoengine
@@ -20,24 +20,27 @@ class MongodbTests(TestCase):
         reset_mongoengine()
 
     def test_source(self):
-        N = 1; interval = 1
+        N = 1
+        interval = 1
         docs = self._run_streaming_test(N, interval, timeout=10)
         self.assertEqual(len(docs), N)
 
     def test_large_dataset_source(self):
-        N = 100; interval = 10
+        N = 100
+        interval = 10
         docs = self._run_streaming_test(N, interval, timeout=15)
         self.assertEqual(len(docs), interval)
         print(list(d['delta'] for d in docs))
 
     def test_xlarge_dataset_source(self):
         # assert that large N do not cause the window processing time to grow
-        N = 10000; interval = 100
-        docs = self._run_streaming_test(N, interval, timeout=90)
+        N = 10000
+        interval = 1000
+        docs = self._run_streaming_test(N, interval, timeout=60)
         self.assertEqual(len(docs), N / interval)
         t_delta = sum(d['delta'] for d in docs) / len(docs)
         # we expect to see 0.5 seconds per batch, average
-        self.assertTrue(t_delta / 1e6 < 1.0) # t_delta is in microseconds
+        self.assertTrue(t_delta / 1e6 < 1.0)  # t_delta is in microseconds
 
     def test_sink(self):
         # we simply inject a mock KafkaProducer into the KafkaSink
@@ -81,9 +84,9 @@ class MongodbTests(TestCase):
 
         for x in range(0, N, interval):
             docs = [{
-                    'foo': 'bar',
-                    'dt': datetime.now()
-                } for i in range(interval)]
+                'foo': 'bar',
+                'dt': datetime.now()
+            } for i in range(interval)]
             coll.insert_many(docs)
             sleep(1)
 
@@ -99,8 +102,3 @@ class MongodbTests(TestCase):
         # return processed docs (in sink)
         docs = list(self.db.processed.find())
         return docs
-
-
-
-
-

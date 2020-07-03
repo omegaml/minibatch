@@ -9,7 +9,7 @@ pypi: dist
 	twine upload --repository testpypi dist/*
 	@echo now test your package!
 
-pypi-prod: dist
+pypi-prod: lint test dist
 	twine upload --repository pypi dist/*
 
 clean:
@@ -20,4 +20,5 @@ lint:
 	flake8 && echo CONGRATULATIONS all is OK
 
 test:
+	docker-compose up -d
 	nosetests -s -v
