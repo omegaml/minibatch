@@ -16,7 +16,96 @@ STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 
 
-class Window(Document):
+class Batcher:
+    """ A batching list-like
+
+    This will batch up to batchsize items in an internal array of objects. To see if
+    is full, check batcher.is_full. Note the internal array is only constrained by memory.
+
+    To increase performance, Batcher will allocate an empty array of batchsize elements
+    at creation time, or when setting .batchsize. If the array becomes too small, it will
+    be increased by 10%. Note it will not be shrunk unless you call .clear(reset=True)
+
+    Usage:
+        batch = Batcher(batchsize=N)
+
+        while True:
+            batch.add(doc)
+            if batch.is_full:
+                process items
+                batch.clear()
+    """
+
+    def __init__(self, batchsize=1):
+        self._batch = []
+        self.head = 0
+        self.batchsize = batchsize
+
+    @property
+    def is_full(self):
+        return self.head > self.batchsize + 1
+
+    def add(self, doc):
+        # protect against buffer overflow
+        # update batch
+        self._batch[self.head] = dict(doc)
+        self.head += 1
+        if len(self._batch) <= self.head:
+            self._batch.extend([None] * int(self.batchsize * .1))
+
+    def clear(self, reset=False):
+        # reset batch
+        self.head = 0
+        if reset:
+            self.batchsize = self.batchsize
+
+    @property
+    def batchsize(self):
+        return self._batchsize
+
+    @batchsize.setter
+    def batchsize(self, v):
+        # pre-allocate batch array
+        self._batch = [None] * (v + 10)  # avoid eager extension on first fill
+        self._batchsize = v
+        self.clear()
+
+    @property
+    def batch(self):
+        return self._batch[0:self.head]
+
+
+class ImmediateWriter:
+    @classmethod
+    def write(cls, doc, batcher=None):
+        """
+        this does a fast, unchecked insert_one(), or insert_many() for batched
+
+        No validation is done whatsoever. Only use this if you know what you are doing. This is
+        250x times faster than Document.save() at the cost of not validating the documents.
+
+        Args:
+            doc (dict): the actual mongodb document to be written
+
+        Returns:
+
+        """
+        if batcher is None:
+            cls._get_collection().insert_one(doc)
+        else:
+            batcher.add(doc)
+            if batcher.is_full:
+                cls.flush(batcher)
+
+    @classmethod
+    def flush(cls, batcher=None):
+        if batcher is not None:
+            # the iterable is to avoid duplicate objects (batch op errors)
+            cls._get_collection().insert_many(dict(d) for d in batcher.batch)
+            batcher.clear()
+
+
+class Window(ImmediateWriter, Document):
     """
     A Window is the data collected from a stream according
     to the WindowEmitter strategy.
@@ -37,7 +126,7 @@ class Window(Document):
         return u"Window [%s] %s" % (self.created, self.data)
 
 
-class Buffer(Document):
+class Buffer(ImmediateWriter, Document):
     stream = StringField(required=True)
     created = DateTimeField(default=datetime.datetime.now)
     data = DictField(required=True)
@@ -77,18 +166,35 @@ class Stream(Document):
         ]
     }
 
+    def __init__(self, *args, batchsize=1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ensure_initialized()
+        self._batcher = None
+        self.batchsize = batchsize
+
     def ensure_initialized(self):
         if self.status == STATUS_INIT:
             self.modify({'status': STATUS_INIT},
                         status=STATUS_OPEN)
 
+    @property
+    def batchsize(self):
+        return self._batcher.batchsize if self._batcher else 1
+
+    @batchsize.setter
+    def batchsize(self, size):
+        if size > 1:
+            self._batcher = self._batcher or Batcher(batchsize=size)
+            self._batcher.batchsize = size
+        else:
+            self._batcher = None
+
     def append(self, data):
-        """
-        non-blocking append to stream buffer
-        """
-        self.ensure_initialized()
-        Buffer(stream=self.name,
-               data=data).save(write_concern=dict(w=0))
+        t = datetime.datetime.now()
+        Buffer.write(dict(stream=self.name, data=data or {}, processed=False, created=t), batcher=self._batcher)
+
+    def flush(self):
+        Buffer.flush(self._batcher)
 
     def attach(self, source, background=True):
         """
@@ -108,12 +214,12 @@ class Stream(Document):
             source.cancel()
 
     @classmethod
-    def get_or_create(cls, name, url=None, **kwargs):
+    def get_or_create(cls, name, url=None, interval=None, batchsize=1, **kwargs):
         # critical section
         # this may fail in concurrency situations
         from minibatch import connectdb
         try:
-            connectdb(alias='minibatch', url=url)
+            connectdb(alias='minibatch', url=url, **kwargs)
         except Exception as e:
             warning("Stream setup resulted in {} {}".format(type(e), str(e)))
         try:
@@ -122,10 +228,11 @@ class Stream(Document):
             pass
         try:
             stream = Stream(name=name or uuid4().hex,
-                            status=STATUS_OPEN,
-                            **kwargs).save()
+                            interval=interval,
+                            status=STATUS_OPEN).save()
         except NotUniqueError:
             stream = Stream.objects(name=name).no_cache().get()
+        stream.batchsize = batchsize
         return stream
 
     def buffer(self, **kwargs):

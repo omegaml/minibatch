@@ -17,7 +17,6 @@ processing that is easily scalable. Streaming primarily consists of
 * a producer, which is some function inserting data into the stream
 * a consumer, which is some function retrieving data from the stream
 * transform and windowing functions to process the data in small batches and in parallel
-* a Flask
 
 minibatch is an integral part of `omega|ml <https://github.com/omegaml/omegaml>`_, however also works independently. omega|ml is the Python DataOps and MLOps
 platform for humans.
@@ -36,6 +35,7 @@ A few hightlights
 * producer and consumer stream code runs anywhere
 * no dependencies other than mongoengine, pymongo
 * extensible sources and sinks (already available: Kafka, MQTT, MongoDB collections, omega|ml datasets)
+* a fully functional streaming web app can be built in less than 15 lines of code (using Flask)
 
 Why is it called *mini*batch? Because it focuses on getting things done by using existing
 technology, and making it easy to use this techonlogy. It may be minimalistic in approach, but maximises results.
@@ -57,8 +57,8 @@ Quick start
 
    .. code::
 
-        from minibatch import stream
-        stream = Stream.get_or_create('test')
+        import minibatch as mb
+        stream = mb.stream('test')
         for i in range(100):
             stream.append({'date': datetime.datetime.now().isoformat()})
             sleep(.5)

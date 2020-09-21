@@ -10,7 +10,7 @@ mongo_pid = None
 
 def streaming(name, interval=None, size=None, emitter=None,
               relaxed=True, keep=False, url=None, sink=None,
-              queue=None, source=None, **kwargs):
+              queue=None, source=None, blocking=True, **kwargs):
     """
     make and call a streaming function
 
@@ -54,19 +54,27 @@ def streaming(name, interval=None, size=None, emitter=None,
         **kwargs: kwargs passed to emitter class
     """
 
+    def make(fn):
+        return make_emitter(name, fn, interval=interval, size=size,
+                            emitter=emitter, relaxed=relaxed, keep=keep,
+                            url=url, sink=sink, queue=queue, source=source,
+                            **kwargs)
+
     def inner(fn):
-        em = make_emitter(name, fn, interval=interval, size=size,
-                          emitter=emitter, relaxed=relaxed, keep=keep,
-                          url=url, sink=sink, queue=queue, source=source,
-                          **kwargs)
-        em.run()
+        if not hasattr(inner, '_em'):
+            inner._em = make(fn)
+
+        inner._em.run(blocking=blocking)
 
     inner.apply = lambda fn: inner(fn)
+    inner.make = lambda fn: make(fn)
     return inner
 
 
-def stream(name, url=None):
-    return Stream.get_or_create(name, url=url)
+def stream(name, url=None, ssl=False, **kwargs):
+    cnx_kwargs = dict(url=url, ssl=ssl)
+    kwargs.update(cnx_kwargs)
+    return Stream.get_or_create(name, **kwargs)
 
 
 class IntegrityError(Exception):
@@ -75,7 +83,7 @@ class IntegrityError(Exception):
 
 def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
                  url=None, sink=None, emitter=None, keep=False, queue=None,
-                 source=None, **kwargs):
+                 source=None, cnx_kwargs=None, **kwargs):
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     if interval is None and size is None:
@@ -84,7 +92,9 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     forwardfn = sink.put if sink else None
 
     emitfn._count = 0
-    stream = Stream.get_or_create(name, interval=interval or size, url=url)
+    cnx_kwargs = cnx_kwargs or {}
+    cnx_kwargs.update(url=url) if url else None
+    stream = Stream.get_or_create(name, interval=interval or size, **cnx_kwargs)
     kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue)
     if interval and emitter is None:
         if relaxed:
@@ -141,7 +151,8 @@ def authenticated_url(mongo_url, authSource='admin'):
     return mongo_url
 
 
-def connectdb(url=None, dbname=None, alias=None, authSource='admin', **kwargs):
+def connectdb(url=None, dbname=None, alias=None, authSource='admin',
+              fast_insert=True, **kwargs):
     from mongoengine import connect
     from mongoengine.connection import get_db, _connection_settings
 
@@ -149,6 +160,9 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin', **kwargs):
     url = authenticated_url(url, authSource=authSource) if authSource else url
     alias = alias or 'minibatch'
     reset_mongoengine()
+    if fast_insert:
+        kwargs['w'] = 0
+        kwargs['j'] = False
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
     if 'default' not in _connection_settings:
         # workaround to https://github.com/MongoEngine/mongoengine/issues/2239

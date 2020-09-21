@@ -303,7 +303,7 @@ class RelaxedTimeWindow(WindowEmitter):
 
     def query(self, *args):
         last_read, max_read = args
-        fltkwargs = dict(stream=self.stream_name, created__gt=last_read,
+        fltkwargs = dict(stream=self.stream_name,
                          created__lte=max_read, processed=False)
         return Buffer.objects.no_cache().filter(**fltkwargs)
 
