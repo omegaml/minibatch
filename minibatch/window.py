@@ -194,6 +194,7 @@ class WindowEmitter(object):
             logger.debug("window ready")
             qs = self.query(*query_args)
             qs = self.process(qs)
+            self.timestamp(*query_args)
             # note self.emit is usin an async executor
             # that returns a future
             if qs or self.emit_empty:
@@ -220,7 +221,7 @@ class WindowEmitter(object):
                             data = data.data
                         self.forward(data)
                     finally:
-                        self.timestamp(*query_args)
+                        logger.debug('emit done')
                     self.sleep()
 
                 future.add_done_callback(emit_done)
@@ -310,7 +311,6 @@ class RelaxedTimeWindow(WindowEmitter):
     def timestamp(self, *args):
         last_read, max_read = args
         self.stream.modify(query=dict(last_read=last_read), last_read=max_read)
-        self.stream.reload()
 
 
 class CountWindow(WindowEmitter):
