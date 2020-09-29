@@ -6,10 +6,12 @@ dist:
 	python setup.py sdist bdist_wheel
 
 pypi: dist
+	twine check dist/*
 	twine upload --repository testpypi dist/*
 	@echo now test your package!
 
 pypi-prod: lint test dist
+	twine check dist/*
 	twine upload --repository pypi dist/*
 
 clean:
@@ -22,3 +24,12 @@ lint:
 test:
 	docker-compose up -d
 	nosetests -s -v
+
+bumppatch:
+	bumpversion patch
+
+bumpminor:
+	bumpversion minor
+
+bumpbuild:
+	bumpversion build

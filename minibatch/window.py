@@ -210,7 +210,6 @@ class WindowEmitter(object):
                     logger.debug("emit done {}".format(future))
                     qs = future.qs
                     window = future.window
-                    query_args = future.query_args
                     try:
                         data = future.result() or window
                     except Exception:
