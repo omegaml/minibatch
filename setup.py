@@ -7,7 +7,7 @@ basedir = Path(os.path.dirname(__file__))
 README = open(basedir / 'README.rst').read()
 version = open(basedir / 'minibatch' / 'VERSION').read()
 
-dev_deps = ['nose', 'twine', 'flake8']
+dev_deps = ['nose', 'twine', 'flake8', 'bumpversion']
 app_deps = ['flask', 'dash']
 kafka_deps = ['kafka-python==1.4.7']
 mqtt_deps = ['paho-mqtt==1.5.0']

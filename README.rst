@@ -37,7 +37,7 @@ A few hightlights
 * extensible sources and sinks (already available: Kafka, MQTT, MongoDB collections, omega|ml datasets)
 * a fully functional streaming web app can be built in less than 15 lines of code (using Flask)
 
-Why is it called *mini*batch? Because it focuses on getting things done by using existing
+Why is it called minibatch? Because it focuses on getting things done by using existing
 technology, and making it easy to use this techonlogy. It may be minimalistic in approach, but maximises results.
 
 Quick start
@@ -45,7 +45,7 @@ Quick start
 
 1. Install and setup
 
-   .. code::
+   .. code:: python
 
       $ pip install minibatch
       $ docker run -d -p 27017:27017 mongo
@@ -55,7 +55,7 @@ Quick start
 
 2. Create a stream producer or attach to a source
 
-   .. code::
+   .. code:: python
 
         import minibatch as mb
         stream = mb.stream('test')
@@ -66,7 +66,7 @@ Quick start
    Currently there is support for Kafka and MQTT sources. However
    arbitrary other sources can be added.
 
-   .. code::
+   .. code:: python
 
       from minibatch.contrib.kafka import KafkaSource
       source = KafkaSource('topic', urls=['kafka:port'])
@@ -75,7 +75,7 @@ Quick start
 
 3. Consume the stream
 
-   .. code::
+   .. code:: python
 
         from minibatch import streaming
 	    @streaming('test', size=2, keep=True)
@@ -111,7 +111,7 @@ Quick start
    This is a simple helloworld-style streaming application that is fully
    functional and distributable.
 
-   .. code::
+   .. code:: python
 
        # app.py
        def consumer(url):
@@ -153,7 +153,7 @@ Currently provided in :code:`minibatch.contrib`:
 Stream sources are arbitrary objects that support the :code:`stream()`
 method, as follows.
 
-.. code::
+.. code:: python
 
     class SomeSource:
         ...
@@ -176,7 +176,7 @@ provided sinks in :code:`minibatch.contrib` are:
 Stream sinks are arbitrary objects that support the :code:`put()`
 method, as follows.
 
-.. code::
+.. code:: python
 
     class SomeSink:
         ...
@@ -212,7 +212,7 @@ to implement are
 
 See the API reference for more details.
 
-.. code::
+.. code:: python
 
     class SortedWindow(WindowEmitter):
         """
@@ -293,7 +293,7 @@ Extras & optional dependencies
 minibatch provides the following pip install extras, which come with some
 additional dependencies. Extras are installed by running
 
-.. code::
+.. code:: bash
 
     $ pip install minibatch[<extra>|all]
 
