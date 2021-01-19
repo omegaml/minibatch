@@ -34,12 +34,13 @@ class MongodbTests(TestCase):
 
     def test_xlarge_dataset_source(self):
         # assert that large N do not cause the window processing time to grow
-        N = 10000
+        N = 1000
         interval = 1000
         docs = self._run_streaming_test(N, interval, timeout=60)
         self.assertEqual(len(docs), N / interval)
         t_delta = sum(d['delta'] for d in docs) / len(docs)
         # we expect to see 0.5 seconds per batch, average
+        # t_delta is in microseconds => 1e6 convert to seconds
         self.assertTrue(t_delta / 1e6 < 1.0)  # t_delta is in microseconds
 
     def test_sink(self):

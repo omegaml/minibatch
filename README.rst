@@ -149,6 +149,7 @@ Currently provided in :code:`minibatch.contrib`:
 * MQTTSource - attach to an MQTT broker
 * MongoSource - attach to a MongoDB collection
 * DatasetSource - attach to a omega|ml dataset
+* CeleryEventSource - attach to a Celery app event dispatcher
 
 Stream sources are arbitrary objects that support the :code:`stream()`
 method, as follows.
