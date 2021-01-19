@@ -37,7 +37,7 @@ def main():
     # publish some messages
     print("publishing messages")
     for i in range(10):
-        producer.put(dict(foo='bar', time=datetime.now().isoformat()))
+        producer.put(dict(foo='bar', time=datetime.utcnow().isoformat()))
         sleep(.1)
     # check we got the messages
     print("wait to receive all messages")

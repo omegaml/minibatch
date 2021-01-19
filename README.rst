@@ -60,7 +60,7 @@ Quick start
         import minibatch as mb
         stream = mb.stream('test')
         for i in range(100):
-            stream.append({'date': datetime.datetime.now().isoformat()})
+            stream.append({'date': datetime.datetime.utcnow().isoformat()})
             sleep(.5)
 
    Currently there is support for Kafka and MQTT sources. However

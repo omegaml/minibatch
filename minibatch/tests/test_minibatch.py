@@ -95,7 +95,7 @@ class MiniBatchTests(TestCase):
             # function asynchronously upon the window criteria is satisfied
             url = str(self.url)
 
-            @streaming('test', interval=1, keep=True, queue=q)
+            @streaming('test', interval=1, relaxed=False, keep=True, queue=q)
             def myprocess(window):
                 try:
                     db = connectdb(url=url)

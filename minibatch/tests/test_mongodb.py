@@ -74,7 +74,7 @@ class MongodbTests(TestCase):
             def process(window):
                 db = connectdb(url=url)
                 # calculate average time t_delta it took for documents to be received since insertion
-                dtnow = datetime.now()
+                dtnow = datetime.utcnow()
                 t_delta = sum((dtnow - doc['dt']).microseconds for doc in window.data) / len(window.data)
                 db.processed.insert_one(dict(delta=t_delta))
 
@@ -86,7 +86,7 @@ class MongodbTests(TestCase):
         for x in range(0, N, interval):
             docs = [{
                 'foo': 'bar',
-                'dt': datetime.now()
+                'dt': datetime.utcnow()
             } for i in range(interval)]
             coll.insert_many(docs)
             sleep(1)
