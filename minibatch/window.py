@@ -1,9 +1,9 @@
+from concurrent.futures import Future, ProcessPoolExecutor
+
 import datetime
 import logging
-from concurrent.futures import Future, ProcessPoolExecutor
-from queue import Empty
-
 import time
+from queue import Empty
 
 from minibatch import Buffer, Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
@@ -97,7 +97,7 @@ class WindowEmitter(object):
         raise NotImplementedError
 
     def timestamp(self, query_args):
-        self.stream.modify(query={}, last_read=datetime.datetime.now())
+        self.stream.modify(last_read=datetime.datetime.utcnow())
 
     @property
     def stream(self):
@@ -135,8 +135,9 @@ class WindowEmitter(object):
         if window is not None and hasattr(window, 'delete'):
             window.delete()
 
-    def emit(self, qs):
+    def emit(self, qs, query_args=None):
         window = Window(stream=self.stream.name,
+                        query=query_args,
                         data=[obj.data for obj in qs]).save()
         if self.emitfn:
             logging.debug("calling emitfn")
@@ -199,7 +200,7 @@ class WindowEmitter(object):
             # that returns a future
             if qs or self.emit_empty:
                 logger.debug("Emitting")
-                future = self.emit(qs)
+                future = self.emit(qs, query_args)
                 logger.debug("got future {}".format(future))
                 future['qs'] = qs
                 future['query_args'] = query_args
@@ -250,9 +251,8 @@ class FixedTimeWindow(WindowEmitter):
         self.emit_empty = True
 
     def window_ready(self):
-        stream = self.stream
-        last_read = stream.last_read
-        now = datetime.datetime.now()
+        last_read = self.stream.last_read
+        now = datetime.datetime.utcnow()
         max_read = last_read + datetime.timedelta(seconds=self.interval)
         return now > max_read, (last_read, max_read)
 
@@ -264,21 +264,22 @@ class FixedTimeWindow(WindowEmitter):
 
     def timestamp(self, *args):
         last_read, max_read = args
-        self.stream.modify(query=dict(last_read__gte=last_read), last_read=max_read)
+        self.stream.modify(last_read=max_read)
         self.stream.reload()
 
     def sleep(self):
         import time
-        # we have strict time windows, only sleep if we are up to date
-        if self.stream.last_read > datetime.datetime.now() - datetime.timedelta(seconds=self.interval):
-            # sleep slightly longer to make sure the interval is complete
-            # and all data had a chance to accumulate. if we don't do
-            # this we might get empty windows on accident, resulting in
-            # lost data
-            time.sleep(self.interval + 0.25)
+        # sleep slightly longer to make sure the interval is complete
+        # and all data had a chance to accumulate. if we don't do
+        # this we might get empty windows on accident, resulting in
+        # lost data
+        now = datetime.datetime.utcnow()
+        if self.stream.last_read > now - datetime.timedelta(seconds=self.interval):
+            # only sleep if all previous windows were processed
+            time.sleep(self.interval + 0.01)
 
 
-class RelaxedTimeWindow(WindowEmitter):
+class RelaxedTimeWindow(FixedTimeWindow):
     """
     a relaxed time-interval window
 
@@ -295,21 +296,11 @@ class RelaxedTimeWindow(WindowEmitter):
             # ...
     """
 
-    def window_ready(self):
-        stream = self.stream
-        last_read = stream.last_read
-        max_read = datetime.datetime.now()
-        return True, (last_read, max_read)
-
     def query(self, *args):
         last_read, max_read = args
         fltkwargs = dict(stream=self.stream_name,
                          created__lte=max_read, processed=False)
         return Buffer.objects.no_cache().filter(**fltkwargs)
-
-    def timestamp(self, *args):
-        last_read, max_read = args
-        self.stream.modify(query=dict(last_read=last_read), last_read=max_read)
 
 
 class CountWindow(WindowEmitter):
@@ -318,13 +309,14 @@ class CountWindow(WindowEmitter):
         qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.interval)
         n_docs = qs.count(with_limit_and_skip=True)
         self._qs = qs
-        return n_docs >= self.interval, ()
+        return n_docs >= self.interval, []
 
     def query(self, *args):
         return self._qs
 
     def timestamp(self, *args):
-        self.stream.modify(query={}, last_read=datetime.datetime.now())
+        self.stream.modify(last_read=datetime.datetime.utcnow())
+        self.stream.reload()
 
     def sleep(self):
         import time

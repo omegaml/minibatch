@@ -15,7 +15,6 @@ STATUS_PROCESSED = 'processed'
 STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 
-
 class Batcher:
     """ A batching list-like
 
@@ -111,11 +110,13 @@ class Window(ImmediateWriter, Document):
     to the WindowEmitter strategy.
     """
     stream = StringField(required=True)
-    created = DateTimeField(default=datetime.datetime.now)
+    created = DateTimeField(default=datetime.datetime.utcnow)
     data = ListField(default=[])
     processed = BooleanField(default=False)
+    query = ListField(default=[])
     meta = {
         'db_alias': 'minibatch',
+        'strict': False, # support previous releases
         'indexes': [
             'created',
             'stream',
@@ -128,11 +129,12 @@ class Window(ImmediateWriter, Document):
 
 class Buffer(ImmediateWriter, Document):
     stream = StringField(required=True)
-    created = DateTimeField(default=datetime.datetime.now)
+    created = DateTimeField(default=datetime.datetime.utcnow)
     data = DictField(required=True)
     processed = BooleanField(default=False)
     meta = {
         'db_alias': 'minibatch',
+        'strict': False, # support previous releases
         'indexes': [
             'created',
             'stream',
@@ -151,13 +153,14 @@ class Stream(Document):
     """
     name = StringField(default=lambda: uuid4().hex, required=True)
     status = StringField(choices=STATUS_CHOICES, default=STATUS_INIT)
-    created = DateTimeField(default=datetime.datetime.now)
+    created = DateTimeField(default=datetime.datetime.utcnow)
     closed = DateTimeField(default=None)
     # interval in seconds or count in #documents
     interval = IntField(default=10)
-    last_read = DateTimeField(default=datetime.datetime.now)
+    last_read = DateTimeField(default=datetime.datetime.utcnow)
     meta = {
         'db_alias': 'minibatch',
+        'strict': False,  # support previous releases
         'indexes': [
             'created',  # most recent is last, i.e. [-1]
             {'fields': ['name'],
@@ -190,7 +193,7 @@ class Stream(Document):
             self._batcher = None
 
     def append(self, data):
-        t = datetime.datetime.now()
+        t = datetime.datetime.utcnow()
         Buffer.write(dict(stream=self.name, data=data or {}, processed=False, created=t), batcher=self._batcher)
 
     def flush(self):
@@ -225,12 +228,12 @@ class Stream(Document):
         try:
             stream = Stream.objects(name=name).no_cache().get()
         except Stream.DoesNotExist:
-            pass
-        try:
-            stream = Stream(name=name or uuid4().hex,
-                            interval=interval,
-                            status=STATUS_OPEN).save()
-        except NotUniqueError:
+            try:
+                stream = Stream(name=name or uuid4().hex,
+                                interval=interval,
+                                status=STATUS_OPEN).save()
+            except NotUniqueError:
+                pass
             stream = Stream.objects(name=name).no_cache().get()
         stream.batchsize = batchsize
         return stream

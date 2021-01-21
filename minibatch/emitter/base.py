@@ -85,11 +85,11 @@ class Emitter(object):
         """ return a tuple of (ready, qargs) """
         stream = self.stream
         last_read = stream.last_read
-        now = datetime.datetime.now()
+        now = datetime.datetime.utcnow()
         return now > last_read, (now, last_read)
 
     def timestamp(self, query_args):
-        self.stream.modify(query={}, last_read=datetime.datetime.now())
+        self.stream.modify(query={}, last_read=datetime.datetime.utcnow())
 
     @property
     def stream(self):
