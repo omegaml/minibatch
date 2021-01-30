@@ -15,6 +15,7 @@ STATUS_PROCESSED = 'processed'
 STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 
+
 class Batcher:
     """ A batching list-like
 
@@ -116,7 +117,7 @@ class Window(ImmediateWriter, Document):
     query = ListField(default=[])
     meta = {
         'db_alias': 'minibatch',
-        'strict': False, # support previous releases
+        'strict': False,  # support previous releases
         'indexes': [
             'created',
             'stream',
@@ -134,7 +135,7 @@ class Buffer(ImmediateWriter, Document):
     processed = BooleanField(default=False)
     meta = {
         'db_alias': 'minibatch',
-        'strict': False, # support previous releases
+        'strict': False,  # support previous releases
         'indexes': [
             'created',
             'stream',
