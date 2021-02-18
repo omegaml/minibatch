@@ -1,0 +1,73 @@
+Copyright 2014-2018 one2seven GmbH, Zurich
+Copyright 2014-2018 Patrick Senti, Zurich
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License
+as per the included LICENSE file.
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Third Party Packages are used by this Work as listed in the THIRDPARTY
+file. By using this Work you agree to adhere to the respective license
+of any and all third party packages. Runtime Dependencies are listed
+below. The licenses as known to us at the time of writing are listed
+in THIRDPARTY-LICENSES along with the download URL for each package.
+
+Runtime Dependencies are not included in this Work and shall be obtained
+and used by You in agreement with the respective third party in the name
+of and at the risk and cost of You or your Legal Entity.
+
+Noteable runtime dependencies are:
+
+RabbitMQ - https://www.rabbitmq.com/ (Mozilla Public License)
+MongoDB - https://www.mongodb.com/ (Server Side Public License, GNU AGPL v3.0)
+Docker - https://www.docker.com/ (Apache 2.0 license)  [1]
+
+[1] is recommended, not required
+
+
+Software & Hardware requirements:
+
+* Single node / single user deployment
+
+  CPU: at least dual core 64-bit 2.4 GHz
+  RAM: at least 8GB, 16GB recommended
+  Disk: at least 100GB free disk space, SSD recommended
+  Operating System: Linux Ubuntu, Mint, Debian
+
+* Multi node / multi user
+
+  Effectively operating a cluster of a scalable data science
+  platform is an engineering challenge. We have solved this
+  challenge and provide the omega|ml enterprise edition for
+  this purpose. Request more information at https://omegaml.io
+  or by sending an email to info@omegaml.io
+
+  for every worker node
+    CPU: at least dual core 64-bit 2.4 GHz
+    RAM: at least 8GB, 16GB recommended
+    Disk: at least 100GB free disk space, SSD recommended
+    Operating System: Linux Ubuntu, Mint, Debian
+
+    Windows is not currently supported - if you have a Windows requirements
+    please let us know at info@omegaml.io
+
+  for every MongoDB node
+    CPU: at least dual core 64-bit 2.4 GHz
+    RAM: at least 16GB, 32GB recommended
+    Disk: at least 500GB free disk space, SSD 1TB free disk space recommended
+    Operating System: Linux Ubuntu, Mint, Debian (recommended)
+
+    see https://docs.mongodb.com/manual/administration/production-notes/#hardware-considerations
+
+  for every RabbitMQ node
+    CPU: at least dual core 64-bit 2.4 GHz
+    RAM: at least 4GB
+    Disk: at least 10GB free disk space
+    Operating System: Linux Ubuntu, Mint, Debian (recommended)
+
+    see https://www.rabbitmq.com/production-checklist.html

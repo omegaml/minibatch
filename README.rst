@@ -325,12 +325,13 @@ Contributing
 ------------
 
 We welcome any contributions - examples, issues, bug reports, documentation, code. Please see `CONTRIBUTING.md`_
-for details. All submitted work is licensed under the MIT license, see LICENSE file for details.
+for details. 
 
 License
 -------
 
-MIT licensed. See LICENSE file.
+Apache 2.0 licensed with "No Sell, Consulting Yes" clause. 
+See LICENSE and LICENSE-NOSELLCLAUSE files.
 
 
 

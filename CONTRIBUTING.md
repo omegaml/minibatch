@@ -21,8 +21,8 @@ Pull requests are the best way to propose changes to the codebase (we use [Githu
 5. Make sure your code lints (run `$ make lint`).
 6. Issue that pull request!
 
-## Any contributions you make will be under the MIT Software License
-In short, when you submit code changes, your submissions are understood to be under the same [MIT License](http://choosealicense.com/licenses/mit/) that covers the project. Feel free to contact the maintainers if that's a concern.
+## Any contributions you make will be under the Apache 2.0 Software License
+In short, when you submit code changes, your submissions are understood to be under the same [Appache 2.0](https://choosealicense.com/licenses/apache-2.0/) + "No Sell, Consulting Yes" License Condition that covers the project. Feel free to contact the maintainers if that's a concern.
 
 ## Report bugs using Github's [issues](https://github.com/omegaml/minibatch/issues)
 We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/omegaml/minibatch/issues/new); it's that easy!
@@ -61,7 +61,7 @@ CONGRATULATIONS all is OK
 ```
 
 ## License
-By contributing, you agree that your contributions will be licensed under the project's license as detailed in the LICENSE file (MIT License)
+By contributing, you agree that your contributions will be licensed under the project's license as detailed in the LICENSE and LICENSE-NOSELLCLAUSE files
 
 ## References
 This document was adapted from the open-source contribution guidelines for [Facebook's Draft](https://github.com/facebook/draft-js/blob/a9316a723f9e918afde44dea68b5f9f39b7d9b00/CONTRIBUTING.md)
