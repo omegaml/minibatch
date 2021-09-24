@@ -11,8 +11,8 @@ dev_deps = ['nose', 'twine', 'flake8', 'bumpversion']
 app_deps = ['flask', 'dash']
 kafka_deps = ['kafka-python==1.4.7']
 mqtt_deps = ['paho-mqtt==1.5.0']
-mongo_deps = ['pymongo==3.10.1']
-omega_deps = ['omegaml[all-client]']
+mongo_deps = ['pymongo>=3.2.2', 'dnspython']
+omega_deps = ['omegaml[client]']
 
 setup(name='minibatch',
       version=version,
@@ -29,8 +29,7 @@ setup(name='minibatch',
       install_requires=[
           # Mongo 4.2 requires at least mongoengine 0.19 due to
           # https://github.com/MongoEngine/mongoengine/pull/2160/files
-          # omegaml currently only supports <0.19
-          'mongoengine>=0.18,<0.19',
+          'mongoengine~=0.23.1',
           'dill',
       ],
       extras_require={
