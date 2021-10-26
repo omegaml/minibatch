@@ -14,6 +14,10 @@ pypi-prod: lint test dist
 	twine check dist/*
 	twine upload --repository pypi dist/*
 
+pypitest:
+    # run this in a new conda env
+	pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ minibatch[all]
+
 clean:
 	rm -rf ./dist
 	rm -rf ./build

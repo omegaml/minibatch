@@ -146,8 +146,13 @@ def reset_mongoengine():
 
 
 def authenticated_url(mongo_url, authSource='admin'):
-    if mongo_url and '?authSource' not in str(mongo_url):
-        mongo_url = '{}?authSource={}'.format(mongo_url, authSource)
+    if '+srv' in str(mongo_url):
+        # all configuration is provided by the DNS
+        # https://docs.mongodb.com/manual/reference/connection-string/#std-label-connections-dns-seedlist
+        return mongo_url
+    if 'authSource' not in str(mongo_url):
+        joiner = '&' if '?' in mongo_url else '?'
+        mongo_url = '{}{}authSource={}'.format(mongo_url, joiner, authSource)
     return mongo_url
 
 
