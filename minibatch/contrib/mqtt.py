@@ -36,7 +36,7 @@ class MQTTNode:
         pass
 
     def on_message(self, client, userdata, message):
-        message.payload = json.loads(message.payload, encoding='utf-8')
+        message.payload = json.loads(message.payload)
 
     def connect(self):
         client = self.client
