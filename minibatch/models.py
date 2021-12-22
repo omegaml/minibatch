@@ -1,5 +1,3 @@
-from logging import warning
-
 import datetime
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
@@ -127,6 +125,10 @@ class Window(ImmediateWriter, Document):
     def __unicode__(self):
         return u"Window [%s] %s" % (self.created, self.data)
 
+    @classmethod
+    def get_by_stream(cls, name, **kwargs):
+        return Window.objects.no_cache().filter(**{'stream': name, **kwargs})
+
 
 class Buffer(ImmediateWriter, Document):
     stream = StringField(required=True)
@@ -144,6 +146,10 @@ class Buffer(ImmediateWriter, Document):
 
     def __unicode__(self):
         return u"Buffer created=[%s] processed=%s data=%s" % (self.created, self.processed, self.data)
+
+    @classmethod
+    def get_by_stream(cls, name, **kwargs):
+        return Buffer.objects.no_cache().filter(**{'stream': name, **kwargs})
 
 
 class Stream(Document):
@@ -218,14 +224,7 @@ class Stream(Document):
             source.cancel()
 
     @classmethod
-    def get_or_create(cls, name, url=None, interval=None, batchsize=1, **kwargs):
-        # critical section
-        # this may fail in concurrency situations
-        from minibatch import connectdb
-        try:
-            connectdb(alias='minibatch', url=url, **kwargs)
-        except Exception as e:
-            warning("Stream setup resulted in {} {}".format(type(e), str(e)))
+    def get_or_create(cls, name, interval=None, batchsize=1):
         try:
             stream = Stream.objects(name=name).no_cache().get()
         except Stream.DoesNotExist:

@@ -3,9 +3,8 @@ from concurrent.futures import Future, ProcessPoolExecutor
 import datetime
 import logging
 
-from minibatch import Stream, logger
+from minibatch import Stream, Buffer, logger, get_on_create_stream
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
-from minibatch.models import Buffer
 
 
 class Emitter(object):
@@ -77,9 +76,8 @@ class Emitter(object):
     def query(self, *args):
         now, last_read = args
         last_read, max_read = args
-        fltkwargs = dict(stream=self.stream_name,
-                         created__gte=last_read, created__lte=now)
-        return Buffer.objects.no_cache().filter(**fltkwargs)
+        fltkwargs = dict(created__gte=last_read, created__lte=now)
+        return Buffer.get_by_stream(self.stream_name, **fltkwargs)
 
     def ready(self):
         """ return a tuple of (ready, qargs) """
@@ -95,7 +93,7 @@ class Emitter(object):
     def stream(self):
         if self._stream:
             return self._stream
-        self._stream = Stream.get_or_create(self.stream_name,
+        self._stream = get_on_create_stream(self.stream_name,
                                             url=self._stream_url)
         return self._stream
 

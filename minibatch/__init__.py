@@ -1,11 +1,14 @@
 import logging
 import os
 
-from minibatch._version import version  # noqa
-from minibatch.models import Stream, Buffer, Window  # noqa
-
 logger = logging.getLogger(__name__)
 mongo_pid = None
+db_session = None
+
+# models
+Buffer = None
+Stream = None
+Window = None
 
 
 def streaming(name, interval=None, size=None, emitter=None,
@@ -156,10 +159,27 @@ def authenticated_url(mongo_url, authSource='admin'):
     return mongo_url
 
 
-def connectdb(url=None, dbname=None, alias=None, authSource='admin',
-              fast_insert=True, **kwargs):
+def connectdb(url=None, **kwargs):
+    global db_session
+
+    if url and not url.startswith('mongodb'):
+        db_session = connectdb_sa(url, **kwargs)
+    else:
+        db_session = connectdb_mongo(url, **kwargs)
+    return db_session
+
+
+def connectdb_mongo(url=None, dbname=None, alias=None, authSource='admin',
+                    fast_insert=True, **kwargs):
     from mongoengine import connect
     from mongoengine.connection import get_db, _connection_settings
+    from minibatch.contrib.backends.mongo import (
+        Buffer as MongoBuffer, Stream as MongoStream, Window as MongoWindow)
+
+    global Buffer, Stream, Window
+    Buffer = MongoBuffer
+    Stream = MongoStream
+    Window = MongoWindow
 
     url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL')
     url = authenticated_url(url, authSource=authSource) if authSource else url
@@ -173,3 +193,40 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin',
         # workaround to https://github.com/MongoEngine/mongoengine/issues/2239
         connect(alias='default', db=dbname, host=url, connect=False, **kwargs)
     return get_db(alias=alias)
+
+
+def connectdb_sa(url=None, **kwargs):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker, scoped_session
+    from minibatch.contrib.backends.sa import Buffer as SaBuffer, Stream as SaStream, Window as SaWindow
+
+    global Buffer, Stream, Window
+    Buffer = SaBuffer
+    Stream = SaStream
+    Window = SaWindow
+
+    engine = create_engine(url, **kwargs)
+    return scoped_session(sessionmaker(engine))
+
+
+def close_sa(e=None):
+    try:
+        db_session.commit()
+    except:
+        db_session.rollback()
+        raise
+    finally:
+        db_session.flush()
+        db_session.get_bind().dispose()
+        db_session.remove()
+
+
+def get_on_create_stream(name, url=None, interval=None, batchsize=1, **kwargs):
+    # critical section
+    # this may fail in concurrency situations
+    try:
+        connectdb(alias='minibatch', url=url, **kwargs)
+    except Exception as e:
+        logger.warning("Stream setup resulted in {} {}".format(type(e), str(e)))
+
+    return Stream.get_or_create(name, interval, batchsize)

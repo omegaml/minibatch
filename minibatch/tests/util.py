@@ -1,3 +1,4 @@
+import os
 from concurrent.futures._base import Executor, Future
 
 from minibatch import connectdb
@@ -5,9 +6,13 @@ from minibatch import connectdb
 
 def delete_database(url=None, dbname='test'):
     """ test support """
-    db = connectdb(url=url, dbname=dbname)
-    db.client.drop_database(dbname)
-    return db
+    if url and url.startswith('sqlite'):
+        path = url.replace("sqlite:///", "")
+        if os.path.isfile(path):
+            os.remove(path)
+    else:
+        db = connectdb(url=url, dbname=dbname)
+        db.client.drop_database(dbname)
 
 
 class LocalExecutor(Executor):

@@ -5,9 +5,8 @@ import logging
 import time
 from queue import Empty
 
-from minibatch import Buffer, Stream, logger
+from minibatch import Buffer, Window, logger, get_or_create_stream
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
-from minibatch.models import Window
 
 
 class WindowEmitter(object):
@@ -103,7 +102,7 @@ class WindowEmitter(object):
     def stream(self):
         if self._stream:
             return self._stream
-        self._stream = Stream.get_or_create(self.stream_name,
+        self._stream = get_or_create_stream(self.stream_name,
                                             url=self._stream_url)
         return self._stream
 
@@ -241,7 +240,7 @@ class FixedTimeWindow(WindowEmitter):
 
     Usage:
 
-        @stream(name, interval=n_seconds)
+        @stream(name, interval=n_seconds, relaxed=False)
         def myproc(window):
             # ...
     """
@@ -304,12 +303,55 @@ class RelaxedTimeWindow(FixedTimeWindow):
 
 
 class CountWindow(WindowEmitter):
+    """
+    A count window
+
+    emit fixed-sized windows. Waits until at least n messages are
+    available before emitting a new window
+
+    Usage:
+
+        @stream(name, size=n)
+        def myproc(window):
+            # ...
+    """
     def window_ready(self):
         fltkwargs = dict(stream=self.stream_name, processed=False)
         qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.interval)
         n_docs = qs.count(with_limit_and_skip=True)
         self._qs = qs
         return n_docs >= self.interval, []
+
+    def query(self, *args):
+        return self._qs
+
+    def timestamp(self, *args):
+        self.stream.modify(last_read=datetime.datetime.utcnow())
+        self.stream.reload()
+
+    def sleep(self):
+        import time
+        time.sleep(0.1)
+
+
+class TimeBoundCountWindow(CountWindow):
+    """
+    A count window that is bound in time.
+
+    emit fixed-sized windows or every interval n_seconds whichever comes first
+
+    Usage:
+
+        @stream(name, interval=n_seconds, size=n)
+        def myproc(window):
+            # ...
+    """
+    def window_ready(self):
+        last_read = self.stream.last_read
+        now = datetime.datetime.utcnow()
+        max_read = last_read + datetime.timedelta(seconds=self.interval)
+        count_available, _ = super().window_ready()
+        return count_available or now > max_read, (last_read, max_read)
 
     def query(self, *args):
         return self._qs

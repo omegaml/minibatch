@@ -13,6 +13,12 @@ kafka_deps = ['kafka-python==1.4.7']
 mqtt_deps = ['paho-mqtt==1.5.0']
 mongo_deps = ['pymongo>=3.2.2', 'dnspython']
 omega_deps = ['omegaml[client]']
+sqlalchemy = 'SQLAlchemy>=1.3.24'
+all_db_deps = {
+    'postgres': ['psycopg2==2.9.2', sqlalchemy],
+    'mysql': ['mysql-connector-python>=8.0.11, <9', sqlalchemy],
+    'sqlite': [sqlalchemy],
+}
 
 setup(name='minibatch',
       version=version,
@@ -40,5 +46,6 @@ setup(name='minibatch',
           'omegaml': mongo_deps + omega_deps,
           'all': kafka_deps + mqtt_deps + mongo_deps + app_deps,
           'dev': kafka_deps + mqtt_deps + mongo_deps + omega_deps + dev_deps,
+          ** all_db_deps
       },
       )
