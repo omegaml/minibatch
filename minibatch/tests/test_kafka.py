@@ -34,12 +34,12 @@ class KafkaTests(TestCase):
             @streaming('test', executor=LocalExecutor(), url=url, queue=q)
             def process(window):
                 db = connectdb(url=url)
-                db.processed.insert(window.data)
+                db.processed.insert_many(window.data)
 
         q = Queue()
         p = Process(target=consumer, args=(q,))
         p.start()
-        sleep(1)
+        sleep(5)
         q.put(True)
         p.join()
 
