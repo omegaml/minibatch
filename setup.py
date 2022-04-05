@@ -29,7 +29,7 @@ setup(name='minibatch',
       install_requires=[
           # Mongo 4.2 requires at least mongoengine 0.19 due to
           # https://github.com/MongoEngine/mongoengine/pull/2160/files
-          'mongoengine~=0.23.1',
+          'mongoengine~=0.24.1',
           'dill',
       ],
       extras_require={

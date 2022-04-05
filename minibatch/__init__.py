@@ -1,5 +1,8 @@
 import logging
 import os
+from mongoengine import get_connection, ConnectionFailure
+from pymongo.errors import AutoReconnect
+from time import sleep
 
 from minibatch._version import version  # noqa
 from minibatch.models import Stream, Buffer, Window  # noqa
@@ -136,6 +139,8 @@ def reset_mongoengine():
     def clean(d):
         if 'minibatch' in d:
             del d['minibatch']
+        if 'default' in d:
+            del d['default']
 
     clean(connection._connection_settings)
     clean(connection._connections)
@@ -159,17 +164,38 @@ def authenticated_url(mongo_url, authSource='admin'):
 def connectdb(url=None, dbname=None, alias=None, authSource='admin',
               fast_insert=True, **kwargs):
     from mongoengine import connect
-    from mongoengine.connection import get_db, _connection_settings
+    from mongoengine.connection import get_db
 
     url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL')
     url = authenticated_url(url, authSource=authSource) if authSource else url
     alias = alias or 'minibatch'
     reset_mongoengine()
-    if fast_insert:
+    if False and fast_insert:
+        # set writeConcern options
+        # https://pymongo.readthedocs.io/en/stable/api/pymongo/mongo_client.html?highlight=mongoclient
+        # w = 0 - disable write ack
+        # journal = False - do not wait for write
         kwargs['w'] = 0
-        kwargs['j'] = False
+        kwargs['journal'] = False
+    kwargs.setdefault('uuidRepresentation', 'standard')
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
-    if 'default' not in _connection_settings:
-        # workaround to https://github.com/MongoEngine/mongoengine/issues/2239
-        connect(alias='default', db=dbname, host=url, connect=False, **kwargs)
+    waitForConnection(get_connection(alias))
     return get_db(alias=alias)
+
+
+def waitForConnection(client):
+    _exc = None
+    command = client.admin.command
+    for i in range(100):
+        try:
+            # The ping command is cheap and does not require auth.
+            command('ping')
+        except (ConnectionFailure, AutoReconnect) as e:
+            sleep(0.01)
+            _exc = e
+        else:
+            _exc = None
+            break
+    if _exc is not None:
+        raise _exc
+

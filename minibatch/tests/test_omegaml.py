@@ -6,7 +6,7 @@ try:
 
     from minibatch import stream, connectdb, reset_mongoengine
     from minibatch.contrib.omegaml import DatasetSource, DatasetSink
-    from minibatch.tests.util import delete_database
+    from minibatch.tests.util import delete_database, LocalExecutor
     from minibatch.window import CountWindow
 
     class OmegamlTests(TestCase):
@@ -31,12 +31,12 @@ try:
             def emit(window):
                 # this runs in a sep thread, so reconnect db
                 db = connectdb(url)
-                db.processed.insert(window.data)
+                db.processed.insert_many(window.data)
 
             om.datasets.put({'foo': 'bar'}, 'stream-test')
             sleep(1)
 
-            em = CountWindow('test', emitfn=emit)
+            em = CountWindow('test', emitfn=emit, executor=LocalExecutor())
             em.run(blocking=False)
             sleep(1)
             s.stop()
@@ -57,10 +57,9 @@ try:
             def emit(window):
                 # this runs in a sep thread, so reconnect db
                 db = connectdb(url)
-                db.processed.insert(window.data)
+                db.processed.insert_many(window.data)
 
             om.datasets.put({'foo': 'bar'}, 'stream-test')
-            sleep(1)
 
             em = CountWindow('test', emitfn=emit, forwardfn=sink.put)
             em.run(blocking=False)

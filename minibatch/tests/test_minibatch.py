@@ -1,15 +1,17 @@
 from multiprocessing import Process, Queue
 from unittest import TestCase
 
+import multiprocessing
 import sys
 import time
 
-from minibatch import Stream, Buffer, connectdb, logger, reset_mongoengine
+from minibatch import Stream, Buffer, connectdb, reset_mongoengine
 from minibatch.tests.util import delete_database
-# use this for debugging subprocesses
-# logger = multiprocessing.log_to_stderr()
-# logger.setLevel('INFO')
 from minibatch.window import CountWindow
+
+# use this for debugging subprocesses
+logger = multiprocessing.log_to_stderr()
+logger.setLevel('INFO')
 
 
 def sleepdot(seconds=1):
@@ -76,7 +78,7 @@ class MiniBatchTests(TestCase):
         # give it some time to process
         logger.debug("waiting")
         self.sleep(10)
-        q.put(True)   # stop @streaming
+        q.put(True)  # stop @streaming
         proc.join()
         # expect 5 entries, each of length 2
         data = list(doc for doc in self.db.processed.find())
@@ -95,14 +97,15 @@ class MiniBatchTests(TestCase):
             # function asynchronously upon the window criteria is satisfied
             url = str(self.url)
 
-            @streaming('test', interval=1, relaxed=False, keep=True, queue=q)
+            @streaming('test', interval=1, relaxed=False, keep=True, queue=q, url=self.url)
             def myprocess(window):
                 try:
                     db = connectdb(url=url)
                     db.processed.insert_one({'data': window.data or {}})
                 except Exception as e:
                     print(e)
-                return window
+                    raise
+                # return window
 
         # start stream consumer
         q = Queue()
@@ -114,7 +117,7 @@ class MiniBatchTests(TestCase):
             stream.append({'index': i})
             self.sleep(.5)
         # give it some time to process
-        self.sleep(5)
+        self.sleep(10)
         q.put(True)
         proc.join()
         # expect at least 5 entries (10 x .5 = 5 seconds), each of length 1-2
