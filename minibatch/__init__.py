@@ -198,4 +198,3 @@ def waitForConnection(client):
             break
     if _exc is not None:
         raise _exc
-
