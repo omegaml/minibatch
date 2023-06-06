@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 from unittest import TestCase
 
 try:
@@ -35,7 +34,7 @@ try:
                 db.processed.insert_many(window.data)
 
             om.datasets.put({'foo': 'bar'}, 'stream-test')
-            sleep(2)
+            sleep(1)
 
             em = CountWindow('test', emitfn=emit, executor=LocalExecutor())
             em.run(blocking=False)
@@ -61,17 +60,14 @@ try:
                 db.processed.insert_many(window.data)
 
             om.datasets.put({'foo': 'bar'}, 'stream-test')
-            sleep(2)
 
-            em = CountWindow('test', emitfn=emit, forwardfn=sink.put, executor=LocalExecutor())
-            # run emitter until the message has arrived in sink
-            # -- sleep() is not sufficiently stable depending on system load
-            em.should_stop = lambda *args, **kwargs: om.datasets.collection('stream-sink').count_documents({}) > 0
-            em.run(blocking=True)
+            em = CountWindow('test', emitfn=emit, forwardfn=sink.put)
+            em.run(blocking=False)
+            sleep(1)
             s.stop()
+
+            docs = list(db.processed.find())
             docs = list(om.datasets.collection('stream-sink').find())
             self.assertEqual(len(docs), 1)
-
-
 except Exception as e:  # noqa
     print("WARNING could not load omegaml dependencies => omegaml dataset source/sink are not supported")
