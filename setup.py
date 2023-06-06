@@ -7,12 +7,12 @@ basedir = Path(os.path.dirname(__file__))
 README = open(basedir / 'README.rst').read()
 version = open(basedir / 'minibatch' / 'VERSION').read()
 
-dev_deps = ['pytest', 'twine', 'flake8', 'bumpversion']
+dev_deps = ['nose', 'twine', 'flake8', 'bumpversion']
 app_deps = ['flask', 'dash']
 kafka_deps = ['kafka-python==1.4.7']
 mqtt_deps = ['paho-mqtt==1.5.0']
 mongo_deps = ['pymongo>=3.2.2', 'dnspython']
-omega_deps = ['omegaml[client]>=0.15.3']
+omega_deps = ['omegaml[client]']
 
 setup(name='minibatch',
       version=version,
@@ -29,7 +29,7 @@ setup(name='minibatch',
       install_requires=[
           # Mongo 4.2 requires at least mongoengine 0.19 due to
           # https://github.com/MongoEngine/mongoengine/pull/2160/files
-          'mongoengine>=0.23.0',
+          'mongoengine~=0.24.1',
           'dill',
       ],
       extras_require={

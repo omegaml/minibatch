@@ -7,12 +7,12 @@ dist:
 
 pypi: dist
 	twine check dist/*
-	twine upload --repository testpypi-omegaml dist/*
+	twine upload --repository testpypi dist/*
 	@echo now test your package!
 
 pypi-prod: lint test dist
 	twine check dist/*
-	twine upload --repository pypi-omegaml dist/*
+	twine upload --repository pypi dist/*
 
 pypitest:
     # run this in a new conda env
@@ -27,7 +27,7 @@ lint:
 
 test:
 	docker-compose up -d
-	pytest -s -v
+	nosetests -s -v
 
 bumppatch:
 	bumpversion patch

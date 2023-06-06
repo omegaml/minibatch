@@ -1,6 +1,0 @@
-# dependent repositories pulled in by initlocal --install
-# or use gil clone
-# see https://github.com/chronoxor/gil
-# format:
-# name relpath git-repo-url branch
-omegaml ../omegaml-ce https://github.com/omegaml/omegaml release/0.15.5

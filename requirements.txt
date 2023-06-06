@@ -1,2 +1,1 @@
--e ../omegaml-ce
--e .[all,dev]
+-e .[all]
