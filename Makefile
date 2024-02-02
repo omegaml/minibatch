@@ -23,7 +23,7 @@ clean:
 	rm -rf ./build
 
 lint:
-	flake8 && echo CONGRATULATIONS all is OK
+	flake8 --exclude "build/*,dist/*" && echo CONGRATULATIONS all is OK
 
 test:
 	docker compose up -d
