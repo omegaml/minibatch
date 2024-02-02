@@ -1,4 +1,6 @@
 from collections import defaultdict
+from uuid import uuid4
+
 from contextlib import contextmanager
 from unittest import TestCase
 
@@ -35,6 +37,26 @@ class CeleryEventSourceTests(TestCase):
         s.append.assert_called()
         s.stop()
 
+    def test_source_non_task_events(self):
+        celeryapp = DummyCeleryApp()
+        source = CeleryEventSource(celeryapp)
+        s = stream('test', url=self.url)
+        # mock stream append because sut is CeleryEventSource, not append
+        s.append = MagicMock()
+        # mock event source
+        # note there is no task uuid
+        event = {
+            'name': 'test',
+            'state': 'SUCCESS',
+            'runtime': 1.0,
+        }
+        celeryapp.source = source
+        celeryapp.dummy_events = [event]
+        s.attach(source)
+        source.stream(s)
+        s.append.assert_called()
+        s.stop()
+
 
 class attrdict(dict):
     def __init__(self, *args, **kwargs):
@@ -61,10 +83,11 @@ class DummyCeleryApp:
         return self
 
     def event(self, state):
-        self._tasks[state['uuid']].update(state)
-        v = attrdict(self._tasks[state['uuid']])
+        ev_uuid = state.get('uuid', uuid4().hex)
+        self._tasks[ev_uuid].update(state)
+        v = attrdict(self._tasks[ev_uuid])
         v.info = lambda: {k: v for k, v in v.__dict__.items() if k != 'info'}
-        self._tasks[state['uuid']] = v
+        self._tasks[ev_uuid] = v
         return self
 
     @property
