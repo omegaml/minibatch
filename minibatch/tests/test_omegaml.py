@@ -47,7 +47,6 @@ try:
 
         def test_sink(self):
             om = self.om
-            db = self.db
             url = str(self.url)
 
             source = DatasetSource(om, 'stream-test')
