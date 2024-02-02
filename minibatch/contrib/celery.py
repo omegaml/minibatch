@@ -37,7 +37,7 @@ class CeleryEventSource:
         self.celeryapp = celeryapp
         self._stream = None
         self._state = None
-        self._events = events or self.default_events
+        self._events = events if events is not None else self.default_events
         self._recv = None
 
     @property
@@ -71,7 +71,7 @@ class CeleryEventSource:
     def task_info(self, task):
         return {
             'task_name': task.name,
-            'task_id': task.uuid,
+            'task_id': getattr(task, 'uuid'),
             'task_info': task.info(),
             'task_state': task.state,
             'task_runtime': task.runtime,
@@ -81,10 +81,13 @@ class CeleryEventSource:
         state = self.state
         # process latest event
         state.event(event)
-        # get task info
-        task = state.tasks.get(event['uuid'])
-        # append to stream
-        self._stream.append(self.task_info(task))
+        if 'uuid' in event:
+            # get task info
+            task = state.tasks.get(event['uuid'])
+            # append to stream
+            self._stream.append(self.task_info(task))
+        else:
+            self._stream.append(event)
 
     def cancel(self):
         recv = self.recv
