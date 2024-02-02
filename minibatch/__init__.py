@@ -77,12 +77,10 @@ def streaming(name, fn=None, interval=None, size=None, emitter=None,
 
 
 def stream(name, fn=None, url=None, ssl=False, **kwargs):
-    kwargs.update(url=url, ssl=ssl)
-    stream = Stream.get_or_create(name, **kwargs)
-    fn = fn or name if callable(name) else fn
     if callable(fn):
         return streaming(name, url=url, ssl=ssl, **kwargs)(fn)
-    return stream
+    kwargs.update(url=url, ssl=ssl)
+    return Stream.get_or_create(name, **kwargs)
 
 
 class IntegrityError(Exception):
