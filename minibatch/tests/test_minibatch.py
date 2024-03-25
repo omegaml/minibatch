@@ -1,7 +1,8 @@
-import logging
+from collections import Counter
 from multiprocessing import Process, Queue
 from unittest import TestCase
 
+import logging
 import multiprocessing
 import sys
 import time
@@ -14,7 +15,7 @@ from minibatch.window import CountWindow
 # use this for debugging subprocesses
 logging.basicConfig(level=logging.DEBUG)
 logger = multiprocessing.get_logger()
-# logger = multiprocessing.log_to_stderr()
+logger = multiprocessing.log_to_stderr()
 logger.setLevel('INFO')
 
 
@@ -268,6 +269,7 @@ class MiniBatchTests(TestCase):
         self.assertEqual(10, Participant.objects.count())
         max_elector = max(p.elector for p in Participant.objects().no_cache())
         leader = Participant.leader('test')
+        self.assertIsInstance(leader, Participant)
         self.assertEqual(max_elector, leader.elector)
         # modify participant lists
         # -- remove current leader and a few more
@@ -281,3 +283,51 @@ class MiniBatchTests(TestCase):
         for p in Participant.for_stream('test'):
             p.leave()
         self.assertEqual(0, Participant.objects.count())
+
+    def test_chords(self):
+        from minibatch import streaming
+        Participant.ACTIVE_INTERVAL = 1 # simulate short activity timeout
+        stream = Stream.get_or_create('test', url=self.url)
+        stream.append({'foo': 'bar'})
+        print(stream.buffer())
+        print(Participant.producers(stream))
+
+        def consumer(q):
+            logger.debug("starting consumer on={self.url}".format(**locals()))
+            url = str(self.url)
+
+            # note the stream decorator blocks the consumer and runs the decorated
+            # function asynchronously upon the window criteria is satisfied
+            @streaming('test', size=2, keep=True, url=self.url, queue=q)
+            def myprocess(window):
+                logger.debug("*** processing {}".format(window.data))
+                from minibatch import connectdb
+                try:
+                    sleepdot(5)
+                    db = connectdb(url=url)
+                    db.processed.insert_one({'data': window.data or {}})
+                except Exception as e:
+                    logger.error(e)
+                    raise
+                return window
+
+        procs = []
+        for i in range(5):
+            q = Queue()
+            proc = Process(target=consumer, args=(q,))
+            procs.append((q, proc))
+            proc.start()
+        time.sleep(10)
+        print("consumers", stream.consumers)
+        # fill stream
+        for i in range(100):
+            print("all chords", stream.as_producer._all_chords)
+            stream.append({'index': i})
+        counts = Counter([w.chord for w in stream.buffer()])
+        print(counts)
+        print(Participant.for_stream(stream))
+        time.sleep(50)
+        for q, proc in procs:
+            q.put(True)
+            proc.join()
+

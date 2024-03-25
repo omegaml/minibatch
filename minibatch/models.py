@@ -1,3 +1,5 @@
+from itertools import groupby
+
 from contextlib import contextmanager
 
 import random
@@ -32,6 +34,7 @@ class ThreadAlive(threading.Event):
         self.thread = None
 
     def __bool__(self):
+        # return True if thread is alive (i.e. event is not set)
         return not self.is_set()
 
     def stop(self):
@@ -169,7 +172,8 @@ class Buffer(ImmediateWriter, Document):
     }
 
     def __unicode__(self):
-        return u"Buffer created=[%s] processed=%s data=%s" % (self.created, self.processed, self.data)
+        return u"Buffer created=[%s] chord=[%s] processed=%s data=%s" % (
+            self.created, self.chord, self.processed, self.data)
 
 
 class Stream(Document):
@@ -221,11 +225,23 @@ class Stream(Document):
 
     @property
     def as_producer(self):
-        return Participant.myself(self.name, 'producer')
+        return Participant.myself(self, 'producer')
 
     @property
     def as_consumer(self):
-        return Participant.myself(self.name, 'consumer')
+        return Participant.myself(self, 'consumer')
+
+    @property
+    def participants(self):
+        return Participant.for_stream(self)
+
+    @property
+    def producers(self):
+        return Participant.producers(self)
+
+    @property
+    def consumers(self):
+        return Participant.consumers(self)
 
     def append(self, data, chord=None):
         t = datetime.datetime.utcnow()
@@ -253,6 +269,7 @@ class Stream(Document):
         source = getattr(self, '_stream_source', None)
         if source:
             source.cancel()
+        self.as_producer.stop()
 
     @classmethod
     def get_or_create(cls, name, url=None, interval=None, batchsize=1, **kwargs):
@@ -296,6 +313,8 @@ class Participant(Document):
         'strict': False,  # support previous releases
         'indexes': [
             'created',
+            'chord',
+            'hostname',
             {'fields': ['stream', 'elector'], 'unique': True},
         ]
     }
@@ -306,16 +325,20 @@ class Participant(Document):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.alive = ThreadAlive()
-        self._all_chords = []
+        self._all_chords = set()
+
+    def __repr__(self):
+        return f"Participant({self.stream=},{self.role=},{self.hostname=},{self.chord=})"
 
     @classmethod
     def leader(cls, stream):
+        stream = stream.name if isinstance(stream, Stream) else stream
         since = datetime.datetime.utcnow() - datetime.timedelta(seconds=cls.ACTIVE_INTERVAL)
         return Participant.objects(stream=stream, last_beat__gte=since).order_by('-elector').first()
 
-    def my_leading(self, hostname=None):
-        hostname = hostname or socket.gethostname()
-        return Participant.leader(self.stream).hostname == hostname
+    def my_leading(self):
+        leader = Participant.leader(self.stream)
+        return leader.pk == self.pk if leader else False
 
     def beat(self):
         self.update(last_beat=datetime.datetime.utcnow())
@@ -329,37 +352,60 @@ class Participant(Document):
         self.alive.stop()
 
     def select_chord(self):
-        if self.chord == 'default':
-            self.update(chord=random.choice(self.chords))
-        return self.chord
+        return random.choice(self.chords)
 
     @property
     def chords(self):
-        return self._all_chords or [self.chord]
+        return list(self._all_chords) or [self.chord]
 
     def _run_beat_thread(self):
-        while self.active:
-            self.beat()
-            self.housekeep()
-            self.alive.wait(self.ACTIVE_INTERVAL)
+        while self.alive:
+            try:
+                self.beat()
+                self.housekeep()
+                self.alive.wait(self.ACTIVE_INTERVAL)
+            except:
+                pass
 
     def leave(self):
         self.stop()
         self.delete()
 
     def housekeep(self):
-        # clean up inactive participants
-        since = datetime.datetime.utcnow() - datetime.timedelta(seconds=self.ACTIVE_INTERVAL)
-        Participant.objects(last_beat__lt=since).delete()
-        # balance the buffer
-        # find all active chords
-        self._all_chords = list(Participant.objects(stream=self.stream).no_cache().distinct('chord'))
+        # cleanup known chords
+        GRACE_PERIOD = datetime.timedelta(seconds=self.ACTIVE_INTERVAL)
+        since = datetime.datetime.utcnow() - (datetime.timedelta(seconds=self.ACTIVE_INTERVAL) + GRACE_PERIOD)
+        active = Participant.objects(role='consumer', last_beat__gte=since).no_cache()
+        inactive = Participant.objects(role='consumer', last_beat__lt=since).no_cache()
+        self._all_chords -= set(inactive.distinct('chord'))
+        self._all_chords |= set(active.distinct('chord'))
+        if self.my_leading():
+            self.leader_housekeep(since, inactive)
+
+    def leader_housekeep(self, since, inactive):
+        # remove inactive participants
+        inactive.delete()
+        # assign default messages
+        messages = Buffer.objects(chord='default', processed=False).order_by('created')
+        for msg in messages:
+            msg.update(chord=self.select_chord())
+        # balance stream
+        messages = Buffer.objects(created__lt=since, processed=False).order_by('chord')
+        for g, msgs in groupby(messages, key=lambda m: m.chord):
+            # messages in previously the same chord should stay in the same chord
+            new_chord = self.select_chord()
+            for msg in msgs:
+                msg.update(chord=new_chord)
 
     @classmethod
     def get_or_create(cls, stream, role, hostname=None, chord=None):
         hostname = hostname or Participant.my_hostname()
         participant = None
         errors = []
+        # for consumers, we always set a chord (these are fixed for the lifetime of the consumer)
+        # for producers, we select a random chord (distribute evenly)
+        default_chord = uuid4().hex if role == 'consumer' else 'default'
+        chord = chord or default_chord
         try:
             participant = Participant.objects(stream=stream, role=role, hostname=hostname).no_cache().get()
         except Participant.DoesNotExist as e:
@@ -379,17 +425,13 @@ class Participant(Document):
     @classmethod
     def register(cls, stream, role, hostname=None, chord=None):
         hostname = hostname or Participant.my_hostname()
-        # for consumers, we always set a chord (these are fixed for the lifetime of the consumer)
-        # for producers, we select a random chord (distribute evenly)
-        default_chord = uuid4().hex if role == 'consumer' else 'default'
-        chord = chord or default_chord
         participant = cls.get_or_create(stream, role, hostname=hostname, chord=chord)
         participant.start()
         return participant
 
     @classmethod
     def for_stream(cls, stream, role=None):
-        filter = {'stream': stream}
+        filter = {'stream': stream.name if isinstance(stream, Stream) else stream}
         filter.update(role=role) if role else None
         return cls.objects(**filter).no_cache()
 
@@ -403,6 +445,7 @@ class Participant(Document):
 
     @classmethod
     def myself(cls, stream, role, hostname=None):
+        stream = stream.name if isinstance(stream, Stream) else stream
         partname = f'{stream}_{role}'
         if not hasattr(cls.MYSELF, partname):
             hostname = hostname or Participant.my_hostname()

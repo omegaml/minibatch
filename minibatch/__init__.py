@@ -5,7 +5,7 @@ from pymongo.errors import AutoReconnect
 from time import sleep
 
 from minibatch._version import version  # noqa
-from minibatch.models import Stream, Buffer, Window  # noqa
+from minibatch.models import Stream, Buffer, Window, Participant  # noqa
 
 logger = logging.getLogger(__name__)
 mongo_pid = None
@@ -66,7 +66,6 @@ def streaming(name, interval=None, size=None, emitter=None,
     def inner(fn):
         if not hasattr(inner, '_em'):
             inner._em = make(fn)
-
         inner._em.run(blocking=blocking)
 
     inner.apply = lambda fn: inner(fn)
@@ -91,13 +90,14 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
 
     if interval is None and size is None:
         size = 1
-
+    # support autoforwarding to a sink
     forwardfn = sink.put if sink else None
-
-    emitfn._count = 0
+    # create the stream
     cnx_kwargs = cnx_kwargs or {}
     cnx_kwargs.update(url=url) if url else None
     stream = Stream.get_or_create(name, interval=interval or size, **cnx_kwargs)
+    # create the emitter
+    emitfn._count = 0
     kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue)
     if interval and emitter is None:
         if relaxed:
@@ -166,7 +166,7 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin',
     from mongoengine import connect
     from mongoengine.connection import get_db
 
-    url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL')
+    url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL') or 'mongodb://localhost:27017'
     url = authenticated_url(url, authSource=authSource) if authSource else url
     alias = alias or 'minibatch'
     reset_mongoengine()

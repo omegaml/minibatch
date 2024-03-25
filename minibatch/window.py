@@ -7,7 +7,7 @@ from queue import Empty
 
 from minibatch import Buffer, Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
-from minibatch.models import Window
+from minibatch.models import Window, Participant
 
 
 class WindowEmitter(object):
@@ -100,6 +100,14 @@ class WindowEmitter(object):
         self.stream.modify(last_read=datetime.datetime.utcnow())
 
     @property
+    def consumer(self):
+        return Participant.myself(self.stream, 'consumer')
+
+    @property
+    def chord(self):
+        return self.consumer.chord
+
+    @property
     def stream(self):
         if self._stream:
             return self._stream
@@ -137,6 +145,7 @@ class WindowEmitter(object):
 
     def emit(self, qs, query_args=None):
         window = Window(stream=self.stream.name,
+                        chord=self.chord,
                         query=query_args,
                         data=[obj.data for obj in qs]).save()
         if self.emitfn:
@@ -173,6 +182,7 @@ class WindowEmitter(object):
         return self._stop
 
     def run(self, blocking=True):
+        self.consumer.start()
         while not self.should_stop():
             self._run_once()
             logger.debug("sleeping")
@@ -187,6 +197,7 @@ class WindowEmitter(object):
             except Exception as e:
                 logger.debug(e)
         logger.debug('stopped running')
+        self.consumer.stop()
 
     def _run_once(self):
         logger.debug("testing window ready")
@@ -258,7 +269,9 @@ class FixedTimeWindow(WindowEmitter):
 
     def query(self, *args):
         last_read, max_read = args
+        # TODO refactor base fltkwargs for all emitters
         fltkwargs = dict(stream=self.stream_name,
+                         chord=self.chord,
                          created__gte=last_read, created__lte=max_read)
         return Buffer.objects.no_cache().filter(**fltkwargs)
 
@@ -299,13 +312,17 @@ class RelaxedTimeWindow(FixedTimeWindow):
     def query(self, *args):
         last_read, max_read = args
         fltkwargs = dict(stream=self.stream_name,
-                         created__lte=max_read, processed=False)
+                         chord=self.chord,
+                         created__lte=max_read,
+                         processed=False)
         return Buffer.objects.no_cache().filter(**fltkwargs)
 
 
 class CountWindow(WindowEmitter):
     def window_ready(self):
-        fltkwargs = dict(stream=self.stream_name, processed=False)
+        fltkwargs = dict(stream=self.stream_name,
+                         chord=self.chord,
+                         processed=False)
         qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.interval)
         n_docs = qs.count(with_limit_and_skip=True)
         self._qs = qs
