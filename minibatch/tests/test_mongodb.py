@@ -5,7 +5,7 @@ from unittest import TestCase
 
 from time import sleep
 
-from minibatch import connectdb, streaming, stream, make_emitter, Buffer, reset_mongoengine
+from minibatch import connectdb, streaming, stream, make_emitter, Buffer, reset_mongoengine, Participant
 from minibatch.contrib.mongodb import MongoSource, MongoSink
 from minibatch.tests.util import delete_database, LocalExecutor
 
@@ -15,9 +15,11 @@ class MongodbTests(TestCase):
         self.url = 'mongodb://localhost/test'
         delete_database(url=self.url)
         self.db = connectdb(url=self.url)
+        Participant.ACTIVE_INTERVAL = 1
 
     def tearDown(self):
         reset_mongoengine()
+        Participant.shutdown()
 
     def test_source(self):
         N = 1
@@ -50,7 +52,7 @@ class MongodbTests(TestCase):
         db = self.db
         sink_coll = db['processed']
         sink = MongoSink(sink_coll)
-        em = make_emitter('test', url=self.url, sink=sink, emitfn=lambda v: v)
+        em = make_emitter('test', url=self.url, sink=sink, emitfn=lambda v: v, chord='default')
         t = Thread(target=em.run)
         t.start()
         sleep(1)
@@ -70,7 +72,7 @@ class MongodbTests(TestCase):
         def consumer(q, interval):
             url = str(self.url)
 
-            @streaming('test', size=interval, executor=LocalExecutor(), url=url, queue=q)
+            @streaming('test', size=interval, executor=LocalExecutor(), url=url, queue=q, chord='default')
             def process(window):
                 db = connectdb(url=url)
                 # calculate average time t_delta it took for documents to be received since insertion
@@ -78,11 +80,11 @@ class MongodbTests(TestCase):
                 t_delta = sum((dtnow - doc['dt']).microseconds for doc in window.data) / len(window.data)
                 db.processed.insert_one(dict(delta=t_delta))
 
-        # give it some input
+        # start consumer
         q = Queue()
         p = Process(target=consumer, args=(q, interval))
         p.start()
-
+        # add some input
         for x in range(0, N, interval):
             docs = [{
                 'foo': 'bar',
@@ -90,7 +92,7 @@ class MongodbTests(TestCase):
             } for i in range(interval)]
             coll.insert_many(docs)
             sleep(1)
-
+        # wait for processing
         sleep(timeout)
         s.stop()
         q.put(True)
