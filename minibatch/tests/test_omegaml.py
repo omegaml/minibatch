@@ -9,6 +9,7 @@ try:
     from minibatch.tests.util import delete_database, LocalExecutor
     from minibatch.window import CountWindow
 
+
     class OmegamlTests(TestCase):
         def setUp(self):
             self.url = 'mongodb://localhost/test'
@@ -36,17 +37,17 @@ try:
             om.datasets.put({'foo': 'bar'}, 'stream-test')
             sleep(2)
 
-            em = CountWindow('test', emitfn=emit, executor=LocalExecutor())
+            em = CountWindow('test', emitfn=emit, executor=LocalExecutor(), chord='default')
             em.run(blocking=False)
-            sleep(1)
-            s.stop()
 
             docs = list(db.processed.find())
             self.assertEqual(len(docs), 1)
+            # stop the stream
+            s.stop()
 
         def test_sink(self):
             om = self.om
-            db = self.db # noqa
+            db = self.db  # noqa
             url = str(self.url)
 
             source = DatasetSource(om, 'stream-test')

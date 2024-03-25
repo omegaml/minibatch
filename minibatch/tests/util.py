@@ -11,7 +11,10 @@ def delete_database(url=None, dbname='test'):
 
 
 class LocalExecutor(Executor):
-    def submit(self, fn):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def submit(self, fn, /, *args, **kwargs):
         result = fn()
         future = Future()
         future.set_result(result)
