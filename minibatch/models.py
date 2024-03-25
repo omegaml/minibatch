@@ -1,10 +1,20 @@
+from contextlib import contextmanager
+
+import random
+
+import os
+
+import threading
 from logging import warning
+from time import sleep
 
 import datetime
+import socket
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
 from mongoengine.fields import (StringField, IntField, DateTimeField,
                                 ListField, DictField, BooleanField)
+from random import randint
 from threading import Thread
 from uuid import uuid4
 
@@ -14,6 +24,20 @@ STATUS_CLOSED = 'closed'
 STATUS_PROCESSED = 'processed'
 STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
+
+
+class ThreadAlive(threading.Event):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.thread = None
+
+    def __bool__(self):
+        return not self.is_set()
+
+    def stop(self):
+        self.set()
+        self.thread.join(1) if self.thread else None
+        self.thread = None
 
 
 class Batcher:
@@ -111,6 +135,7 @@ class Window(ImmediateWriter, Document):
     to the WindowEmitter strategy.
     """
     stream = StringField(required=True)
+    chord = StringField(required=True, default='default')
     created = DateTimeField(default=datetime.datetime.utcnow)
     data = ListField(default=[])
     processed = BooleanField(default=False)
@@ -130,6 +155,7 @@ class Window(ImmediateWriter, Document):
 
 class Buffer(ImmediateWriter, Document):
     stream = StringField(required=True)
+    chord = StringField(required=True, default='default')
     created = DateTimeField(default=datetime.datetime.utcnow)
     data = DictField(required=True)
     processed = BooleanField(default=False)
@@ -193,9 +219,19 @@ class Stream(Document):
         else:
             self._batcher = None
 
-    def append(self, data):
+    @property
+    def as_producer(self):
+        return Participant.myself(self.name, 'producer')
+
+    @property
+    def as_consumer(self):
+        return Participant.myself(self.name, 'consumer')
+
+    def append(self, data, chord=None):
         t = datetime.datetime.utcnow()
-        Buffer.write(dict(stream=self.name, data=data or {}, processed=False, created=t), batcher=self._batcher)
+        chord = chord or self.as_producer.select_chord()
+        Buffer.write(dict(stream=self.name, chord=chord,
+                          data=data or {}, processed=False, created=t), batcher=self._batcher)
 
     def flush(self):
         Buffer.flush(self._batcher)
@@ -205,6 +241,7 @@ class Stream(Document):
         use an external producer to start streaming
         """
         self._stream_source = source
+        self.as_producer.start()
         if not background:
             source.stream(self)
         else:
@@ -244,3 +281,139 @@ class Stream(Document):
 
     def window(self, **kwargs):
         return Window.objects.no_cache().filter(**{'stream': self.name, **kwargs})
+
+
+class Participant(Document):
+    stream = StringField(required=True)
+    role = StringField(required=True)
+    created = DateTimeField(default=datetime.datetime.utcnow)
+    last_beat = DateTimeField(default=datetime.datetime.utcnow)
+    chord = StringField(required=True, default='default')
+    hostname = StringField(required=True, default=lambda: Participant.my_hostname())
+    elector = IntField(default=lambda: randint(0, 1000000))
+    meta = {
+        'db_alias': 'minibatch',
+        'strict': False,  # support previous releases
+        'indexes': [
+            'created',
+            {'fields': ['stream', 'elector'], 'unique': True},
+        ]
+    }
+
+    ACTIVE_INTERVAL = 10  # seconds
+    MYSELF = threading.local()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.alive = ThreadAlive()
+        self._all_chords = []
+
+    @classmethod
+    def leader(cls, stream):
+        since = datetime.datetime.utcnow() - datetime.timedelta(seconds=cls.ACTIVE_INTERVAL)
+        return Participant.objects(stream=stream, last_beat__gte=since).order_by('-elector').first()
+
+    def my_leading(self, hostname=None):
+        hostname = hostname or socket.gethostname()
+        return Participant.leader(self.stream).hostname == hostname
+
+    def beat(self):
+        self.update(last_beat=datetime.datetime.utcnow())
+
+    def start(self):
+        if not self.alive.thread:
+            t = self.alive.thread = Thread(target=self._run_beat_thread)
+            t.start()
+
+    def stop(self):
+        self.alive.stop()
+
+    def select_chord(self):
+        if self.chord == 'default':
+            self.update(chord=random.choice(self.chords))
+        return self.chord
+
+    @property
+    def chords(self):
+        return self._all_chords or [self.chord]
+
+    def _run_beat_thread(self):
+        while self.active:
+            self.beat()
+            self.housekeep()
+            self.alive.wait(self.ACTIVE_INTERVAL)
+
+    def leave(self):
+        self.stop()
+        self.delete()
+
+    def housekeep(self):
+        # clean up inactive participants
+        since = datetime.datetime.utcnow() - datetime.timedelta(seconds=self.ACTIVE_INTERVAL)
+        Participant.objects(last_beat__lt=since).delete()
+        # balance the buffer
+        # find all active chords
+        self._all_chords = list(Participant.objects(stream=self.stream).no_cache().distinct('chord'))
+
+    @classmethod
+    def get_or_create(cls, stream, role, hostname=None, chord=None):
+        hostname = hostname or Participant.my_hostname()
+        participant = None
+        errors = []
+        try:
+            participant = Participant.objects(stream=stream, role=role, hostname=hostname).no_cache().get()
+        except Participant.DoesNotExist as e:
+            retry = 5
+            while retry:
+                try:
+                    participant = Participant(stream=stream, role=role, hostname=hostname, chord=chord).save()
+                except NotUniqueError as e:
+                    # we retry a few times to set a new elector
+                    retry -= 1
+                    errors.append(e)
+                else:
+                    retry = 0
+        assert participant is not None, f"could not create Participant({stream=},{role=},{hostname=}) due to {errors}"
+        return participant
+
+    @classmethod
+    def register(cls, stream, role, hostname=None, chord=None):
+        hostname = hostname or Participant.my_hostname()
+        # for consumers, we always set a chord (these are fixed for the lifetime of the consumer)
+        # for producers, we select a random chord (distribute evenly)
+        default_chord = uuid4().hex if role == 'consumer' else 'default'
+        chord = chord or default_chord
+        participant = cls.get_or_create(stream, role, hostname=hostname, chord=chord)
+        participant.start()
+        return participant
+
+    @classmethod
+    def for_stream(cls, stream, role=None):
+        filter = {'stream': stream}
+        filter.update(role=role) if role else None
+        return cls.objects(**filter).no_cache()
+
+    @classmethod
+    def producers(cls, stream):
+        return cls.for_stream(stream, role='producer')
+
+    @classmethod
+    def consumers(cls, stream):
+        return cls.for_stream(stream, role='consumer')
+
+    @classmethod
+    def myself(cls, stream, role, hostname=None):
+        partname = f'{stream}_{role}'
+        if not hasattr(cls.MYSELF, partname):
+            hostname = hostname or Participant.my_hostname()
+            participant = cls.register(stream, role, hostname=hostname)
+            setattr(cls.MYSELF, partname, participant)
+        return getattr(cls.MYSELF, partname)
+
+    @property
+    def active(self):
+        return self.last_beat > datetime.datetime.utcnow() - datetime.timedelta(seconds=self.ACTIVE_INTERVAL)
+
+    @classmethod
+    def my_hostname(cls):
+        return socket.gethostname() + '-' + str(os.getpid())

@@ -1,3 +1,4 @@
+import logging
 from multiprocessing import Process, Queue
 from unittest import TestCase
 
@@ -6,11 +7,14 @@ import sys
 import time
 
 from minibatch import Stream, Buffer, connectdb, reset_mongoengine
+from minibatch.models import Participant
 from minibatch.tests.util import delete_database
 from minibatch.window import CountWindow
 
 # use this for debugging subprocesses
-logger = multiprocessing.log_to_stderr()
+logging.basicConfig(level=logging.DEBUG)
+logger = multiprocessing.get_logger()
+# logger = multiprocessing.log_to_stderr()
 logger.setLevel('INFO')
 
 
@@ -242,3 +246,38 @@ class MiniBatchTests(TestCase):
 
         docs = list(Buffer.objects.filter())
         self.assertEqual(len(docs), 0)
+
+    def test_participants(self):
+        # basic functions
+        participant = Participant.register('test', 'producer')
+        self.assertEqual(participant.stream, 'test')
+        self.assertEqual(participant.role, 'producer')
+        self.assertTrue(participant.active)
+        participant.ACTIVE_INTERVAL = 0  # simulate inactivity
+        self.assertFalse(participant.active)
+        participant.ACTIVE_INTERVAL = 1  # simulate short activity timeout
+        participant.beat()
+        self.assertTrue(participant.active)
+        participant.leave()
+        self.assertEqual(0, Participant.objects.count())
+        # leadership
+        # -- check leader is selected automatically and correctly
+        participants = []
+        for i in range(10):
+            participants.append(Participant.register('test', 'producer', hostname=str(i)))
+        self.assertEqual(10, Participant.objects.count())
+        max_elector = max(p.elector for p in Participant.objects().no_cache())
+        leader = Participant.leader('test')
+        self.assertEqual(max_elector, leader.elector)
+        # modify participant lists
+        # -- remove current leader and a few more
+        leader.leave()
+        for p in list(Participant.for_stream('test'))[0:5]:
+            p.leave()
+        self.assertEqual(4, Participant.objects.count())
+        leader2 = Participant.leader('test')
+        self.assertNotEqual(leader.hostname, leader2.hostname)
+        # -- remove all participants
+        for p in Participant.for_stream('test'):
+            p.leave()
+        self.assertEqual(0, Participant.objects.count())
