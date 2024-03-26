@@ -1,4 +1,4 @@
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import datetime
 import logging
@@ -7,7 +7,7 @@ from queue import Empty
 
 from minibatch import Buffer, Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
-from minibatch.models import Window, Participant
+from minibatch.models import Window
 
 
 class WindowEmitter(object):
@@ -75,19 +75,24 @@ class WindowEmitter(object):
     def __init__(self, stream_name, interval=None, processfn=None,
                  emitfn=None, emit_empty=False, executor=None,
                  max_workers=None, stream=None, stream_url=None,
-                 forwardfn=None, queue=None):
+                 forwardfn=None, chord=None, queue=None):
         self.stream_name = stream_name
         self.interval = interval if interval is not None else 1
         self.emit_empty = emit_empty
         self.emitfn = emitfn
         self.processfn = processfn
-        self.executor = (executor or ProcessPoolExecutor(max_workers=max_workers))
+        self.executor = (executor or ThreadPoolExecutor(max_workers=max_workers))
         self._stream = stream
         self._stream_url = stream_url
         self._delete_on_commit = True
         self._forwardfn = forwardfn
         self._stop = False
         self._queue = queue
+        self._chord = chord
+        self._consumer = None
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.stream_name}, chord={self.chord})"
 
     def query(self, *args):
         raise NotImplementedError
@@ -101,11 +106,15 @@ class WindowEmitter(object):
 
     @property
     def consumer(self):
-        return Participant.myself(self.stream, 'consumer')
+        self._consumer = self._consumer or self.stream.as_consumer
+        return self._consumer
 
     @property
     def chord(self):
-        return self.consumer.chord
+        # set the chord to the consumer's chord
+        # -- we only do it once, so we don't end up creating a new consumer each time
+        self._chord = self._chord or self.consumer.chord
+        return self._chord
 
     @property
     def stream(self):
@@ -149,7 +158,7 @@ class WindowEmitter(object):
                         query=query_args,
                         data=[obj.data for obj in qs]).save()
         if self.emitfn:
-            logging.debug("calling emitfn")
+            logging.debug(f"{self} calling emitfn")
             try:
                 sjob = SerializableFunction(self.emitfn, window)
                 future = self.executor.submit(sjob)
@@ -166,60 +175,63 @@ class WindowEmitter(object):
             self._forwardfn(data)
 
     def sleep(self):
+        logger.debug(f"{self} sleeping for {self.interval} seconds")
         time.sleep((self.interval or self.stream.interval) / 2.0)
+
+    def stop(self):
+        self._stop = True
+        try:
+            if self.executor:
+                self.executor.shutdown(wait=True, cancel_futures=True)
+        except Exception as e:
+            logger.debug(e)
+        self.stream.stop()
 
     def should_stop(self):
         if self._queue is not None:
             try:
                 stop_message = self._queue.get(block=False)
-                logger.debug("queue result {}".format(self._stop))
+                logger.debug(f"{self} queue result {self._stop}")
             except Empty:
-                logger.debug("queue was empty")
+                logger.debug(f"{self} queue was empty")
             else:
                 if stop_message:
                     self._stop = True
-        logger.debug("should stop")
+        logger.debug(f"{self} should stop {self._stop}")
         return self._stop
 
     def run(self, blocking=True):
-        self.consumer.start()
+        logger.debug(f'{self} start running')
         while not self.should_stop():
             self._run_once()
-            logger.debug("sleeping")
             self.sleep()
-            logger.debug("awoke")
+            logger.debug(f"{self} awoke")
             if not blocking:
                 break
-        if blocking:
-            # if we did not block, keep executor running
-            try:
-                self.executor.shutdown(wait=True)
-            except Exception as e:
-                logger.debug(e)
-        logger.debug('stopped running')
-        self.consumer.stop()
+        self.stop()
+        logger.debug(f'{self} stopped running')
 
     def _run_once(self):
-        logger.debug("testing window ready")
+        logger.debug(f"{self} testing window ready")
         ready, query_args = self.window_ready()
         if ready:
-            logger.debug("window ready")
+            logger.debug(f"{self} window ready")
             qs = self.query(*query_args)
             qs = self.process(qs)
             self.timestamp(*query_args)
             # note self.emit is usin an async executor
             # that returns a future
             if qs or self.emit_empty:
-                logger.debug("Emitting")
+                logger.debug(f"{self} emitting")
                 future = self.emit(qs, query_args)
-                logger.debug("got future {}".format(future))
+                logger.debug(f"{self} got future {future}")
                 future['qs'] = qs
                 future['query_args'] = query_args
 
                 def emit_done(future):
                     # this is called once upon future resolves
                     future = MinibatchFuture(future)
-                    logger.debug("emit done {}".format(future))
+                    logger.debug(f"{self} emit done {future}")
                     qs = future.qs
                     window = future.window
                     try:
@@ -232,7 +244,7 @@ class WindowEmitter(object):
                             data = data.data
                         self.forward(data)
                     finally:
-                        logger.debug('emit done')
+                        logger.debug(f'{self} emit done')
                     self.sleep()
 
                 future.add_done_callback(emit_done)

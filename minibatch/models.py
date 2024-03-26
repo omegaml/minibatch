@@ -1,17 +1,14 @@
-from itertools import groupby
+import atexit
 
-from contextlib import contextmanager
-
-import random
-
-import os
-
-import threading
+import logging
 from logging import warning
-from time import sleep
 
 import datetime
+import os
+import random
 import socket
+import threading
+from itertools import groupby
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
 from mongoengine.fields import (StringField, IntField, DateTimeField,
@@ -27,6 +24,8 @@ STATUS_PROCESSED = 'processed'
 STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 
+logger = logging.getLogger(__name__)
+
 
 class ThreadAlive(threading.Event):
     def __init__(self, *args, **kwargs):
@@ -39,8 +38,6 @@ class ThreadAlive(threading.Event):
 
     def stop(self):
         self.set()
-        self.thread.join(1) if self.thread else None
-        self.thread = None
 
 
 class Batcher:
@@ -205,6 +202,7 @@ class Stream(Document):
         self.ensure_initialized()
         self._batcher = None
         self.batchsize = batchsize
+        atexit.register(self.stop)
 
     def ensure_initialized(self):
         if self.status == STATUS_INIT:
@@ -269,7 +267,8 @@ class Stream(Document):
         source = getattr(self, '_stream_source', None)
         if source:
             source.cancel()
-        self.as_producer.stop()
+        self.as_consumer.leave()
+        self.as_producer.leave()
 
     @classmethod
     def get_or_create(cls, name, url=None, interval=None, batchsize=1, **kwargs):
@@ -277,9 +276,12 @@ class Stream(Document):
         # this may fail in concurrency situations
         from minibatch import connectdb
         try:
-            connectdb(alias='minibatch', url=url, **kwargs)
+            db_specs = connectdb(alias='minibatch', url=url, **kwargs)
         except Exception as e:
-            warning("Stream setup resulted in {} {}".format(type(e), str(e)))
+            logger.error(f"Stream setup resulted in {e}")
+            exit(1)
+        else:
+            logger.debug(f'Stream {name=} connected using {db_specs=}')
         try:
             stream = Stream.objects(name=name).no_cache().get()
         except Stream.DoesNotExist:
@@ -321,6 +323,7 @@ class Participant(Document):
 
     ACTIVE_INTERVAL = 10  # seconds
     MYSELF = threading.local()
+    _shutdown = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -344,12 +347,11 @@ class Participant(Document):
         self.update(last_beat=datetime.datetime.utcnow())
 
     def start(self):
-        if not self.alive.thread:
+        if self.alive and not self.alive.thread:
+            print("starting", self.alive, self.chord, self.hostname)
             t = self.alive.thread = Thread(target=self._run_beat_thread)
             t.start()
-
-    def stop(self):
-        self.alive.stop()
+        atexit.register(self.leave)
 
     def select_chord(self):
         return random.choice(self.chords)
@@ -359,16 +361,18 @@ class Participant(Document):
         return list(self._all_chords) or [self.chord]
 
     def _run_beat_thread(self):
-        while self.alive:
+        while self.alive and not Participant._shutdown:
             try:
+                print("beat", self.alive, self.chord, self.hostname, Participant._shutdown)
                 self.beat()
                 self.housekeep()
                 self.alive.wait(self.ACTIVE_INTERVAL)
-            except:
-                pass
+            except Exception as e:
+                logger.error(e)
 
     def leave(self):
-        self.stop()
+        print("leaving", self.alive, self.chord, self.hostname)
+        self.alive.stop()
         self.delete()
 
     def housekeep(self):
@@ -424,7 +428,6 @@ class Participant(Document):
 
     @classmethod
     def register(cls, stream, role, hostname=None, chord=None):
-        hostname = hostname or Participant.my_hostname()
         participant = cls.get_or_create(stream, role, hostname=hostname, chord=chord)
         participant.start()
         return participant
@@ -433,7 +436,7 @@ class Participant(Document):
     def for_stream(cls, stream, role=None):
         filter = {'stream': stream.name if isinstance(stream, Stream) else stream}
         filter.update(role=role) if role else None
-        return cls.objects(**filter).no_cache()
+        return list(cls.objects(**filter).no_cache())
 
     @classmethod
     def producers(cls, stream):
@@ -446,12 +449,12 @@ class Participant(Document):
     @classmethod
     def myself(cls, stream, role, hostname=None):
         stream = stream.name if isinstance(stream, Stream) else stream
-        partname = f'{stream}_{role}'
-        if not hasattr(cls.MYSELF, partname):
-            hostname = hostname or Participant.my_hostname()
+        hostname = hostname or Participant.my_hostname()
+        partname = f'{stream}_{role}_{hostname}'
+        if cls.MYSELF.__dict__.get(partname) is None:
             participant = cls.register(stream, role, hostname=hostname)
-            setattr(cls.MYSELF, partname, participant)
-        return getattr(cls.MYSELF, partname)
+            cls.MYSELF.__dict__[partname] = participant
+        return cls.MYSELF.__dict__[partname]
 
     @property
     def active(self):
@@ -459,4 +462,14 @@ class Participant(Document):
 
     @classmethod
     def my_hostname(cls):
-        return socket.gethostname() + '-' + str(os.getpid())
+        return f'{socket.gethostname()}-{os.getpid()}-{threading.get_native_id()}'
+
+    @classmethod
+    def shutdown(cls):
+        cls._shutdown = True
+        logger.info("Shutting down all participants and streams")
+        for part in cls.MYSELF.__dict__.values():
+            part.leave()
+
+
+atexit.register(Participant.shutdown)

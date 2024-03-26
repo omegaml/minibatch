@@ -1,5 +1,5 @@
-from collections import Counter
 from multiprocessing import Process, Queue
+from multiprocessing.dummy import DummyProcess
 from unittest import TestCase
 
 import logging
@@ -13,10 +13,11 @@ from minibatch.tests.util import delete_database
 from minibatch.window import CountWindow
 
 # use this for debugging subprocesses
-logging.basicConfig(level=logging.DEBUG)
+logLevel = logging.DEBUG
+logging.basicConfig(level=logLevel, force=True)
 logger = multiprocessing.get_logger()
-logger = multiprocessing.log_to_stderr()
-logger.setLevel('INFO')
+multiprocessing.log_to_stderr()
+logger.setLevel(logLevel)
 
 
 def sleepdot(seconds=1):
@@ -33,6 +34,7 @@ class MiniBatchTests(TestCase):
         self.url = 'mongodb://localhost/test'
         delete_database(url=self.url)
         self.db = connectdb(url=self.url)
+        self.procs = []  # list of (queue, process)
 
     def tearDown(self):
         reset_mongoengine()
@@ -241,12 +243,13 @@ class MiniBatchTests(TestCase):
         stream.append({'foo': 'bar1'})
         stream.append({'foo': 'bar2'})
 
-        em = CountWindow('test')
+        # 0.6.0: set chord explicitly to disable automated routing
+        em = CountWindow('test', chord='default')
         em._run_once()
         em._run_once()
 
         docs = list(Buffer.objects.filter())
-        self.assertEqual(len(docs), 0)
+        self.assertEqual(0, len(docs))
 
     def test_participants(self):
         # basic functions
@@ -284,24 +287,63 @@ class MiniBatchTests(TestCase):
             p.leave()
         self.assertEqual(0, Participant.objects.count())
 
-    def test_chords(self):
-        from minibatch import streaming
-        Participant.ACTIVE_INTERVAL = 1 # simulate short activity timeout
-        stream = Stream.get_or_create('test', url=self.url)
+    def test_chords_single_consumer(self):
+        Participant.ACTIVE_INTERVAL = 1  # simulate short activity timeout
+        stream = Stream.get_or_create('test-single', url=self.url)
         stream.append({'foo': 'bar'})
-        print(stream.buffer())
-        print(Participant.producers(stream))
+        self.assertEqual(1, len(Participant.producers(stream)))
+        self.assertEqual(1, stream.buffer().count())
+        self.assertEqual(1, len(stream.as_producer.chords))
+        self.assertEqual(1, len(stream.as_consumer.chords))
+        stream.stop()
 
-        def consumer(q):
-            logger.debug("starting consumer on={self.url}".format(**locals()))
-            url = str(self.url)
+    def test_chords_multiple_consumers(self):
+        Participant.ACTIVE_INTERVAL = 1  # simulate short activity timeout
+        stream = Stream.get_or_create('test', url=self.url)
+        workers = 1
+        procs = self._consumer_pool(workers=workers, stream='test', size=2, keep=True)
+        assertEventually(lambda: len(stream.as_producer.chords) == workers,
+                         lambda: f"expected 6 chords, got {len(stream.as_producer.chords)}",
+                         timeout=10)
+        # fill stream
+        for i in range(100):
+            stream.append({'index': i})
+            # print("all chords", stream.as_producer._all_chords)
+        assertEventually(lambda: len(set(w.chord for w in stream.buffer())) == workers,
+                         lambda: f"expected 5 chords, got {len(set(w.chord for w in stream.buffer()))}",
+                         timeout=10)
+        self.assertEqual(workers, len(Participant.for_stream(stream, role='consumer')))
+        stream.stop()
+        self._close_pool(procs)
+        print("done")
+
+    def _consumer_pool(self, workers=1, stream='test', **kwargs):
+        procs = []
+        for i in range(workers):
+            q, consumer = self._pooled_consumer()
+            proc = Process(target=consumer, args=(q, stream, self.url, kwargs))
+            proc.start()
+            procs.append((q, proc))
+        return procs
+
+    def _close_pool(self, procs):
+        for q, proc in procs:
+            q.put(True)
+            proc.join()
+        logger.info("pool closed")
+
+    def _pooled_consumer(self):
+        def consumer(q, stream, url, kwargs):
+            from minibatch import streaming
+            from minibatch import connectdb
+
+            logger.info(f"starting consumer on={url}")
 
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
-            @streaming('test', size=2, keep=True, url=self.url, queue=q)
+            @streaming(stream, queue=q, url=url, **kwargs)
             def myprocess(window):
-                logger.debug("*** processing {}".format(window.data))
-                from minibatch import connectdb
+                logger.info("*** processing {}".format(window.data))
                 try:
                     sleepdot(5)
                     db = connectdb(url=url)
@@ -311,23 +353,14 @@ class MiniBatchTests(TestCase):
                     raise
                 return window
 
-        procs = []
-        for i in range(5):
-            q = Queue()
-            proc = Process(target=consumer, args=(q,))
-            procs.append((q, proc))
-            proc.start()
-        time.sleep(10)
-        print("consumers", stream.consumers)
-        # fill stream
-        for i in range(100):
-            print("all chords", stream.as_producer._all_chords)
-            stream.append({'index': i})
-        counts = Counter([w.chord for w in stream.buffer()])
-        print(counts)
-        print(Participant.for_stream(stream))
-        time.sleep(50)
-        for q, proc in procs:
-            q.put(True)
-            proc.join()
+        q = Queue()
+        return q, consumer
 
+
+def assertEventually(condition, msg=None, timeout=10, interval=1):
+    for _ in range(0, timeout, interval):
+        if condition():
+            return
+        time.sleep(interval)
+    msg = msg() if callable(msg) else (msg or "condition not met")
+    raise AssertionError(msg)
