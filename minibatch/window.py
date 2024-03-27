@@ -1,4 +1,4 @@
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, ProcessPoolExecutor
 
 import datetime
 import logging
@@ -8,6 +8,7 @@ from queue import Empty
 from minibatch import Buffer, Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
 from minibatch.models import Window
+from minibatch.tests.util import LocalExecutor
 
 
 class WindowEmitter(object):
@@ -81,7 +82,7 @@ class WindowEmitter(object):
         self.emit_empty = emit_empty
         self.emitfn = emitfn
         self.processfn = processfn
-        self.executor = (executor or ThreadPoolExecutor(max_workers=max_workers))
+        self.executor = (executor or LocalExecutor(max_workers=max_workers))
         self._stream = stream
         self._stream_url = stream_url
         self._delete_on_commit = True
@@ -349,4 +350,4 @@ class CountWindow(WindowEmitter):
 
     def sleep(self):
         import time
-        time.sleep(0.1)
+        time.sleep(1e-6)

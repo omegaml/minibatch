@@ -13,7 +13,7 @@ from minibatch.tests.util import delete_database
 from minibatch.window import CountWindow
 
 # use this for debugging subprocesses
-logLevel = logging.DEBUG
+logLevel = logging.INFO
 logging.basicConfig(level=logLevel, force=True)
 logger = multiprocessing.get_logger()
 multiprocessing.log_to_stderr()
@@ -299,9 +299,9 @@ class MiniBatchTests(TestCase):
 
     def test_chords_multiple_consumers(self):
         Participant.ACTIVE_INTERVAL = 1  # simulate short activity timeout
-        stream = Stream.get_or_create('test', url=self.url)
-        workers = 1
-        procs = self._consumer_pool(workers=workers, stream='test', size=2, keep=True)
+        stream = Stream.get_or_create('test-multi', url=self.url)
+        workers = 5
+        procs = self._consumer_pool(workers=workers, stream='test-multi', size=2, keep=True)
         assertEventually(lambda: len(stream.as_producer.chords) == workers,
                          lambda: f"expected 6 chords, got {len(stream.as_producer.chords)}",
                          timeout=10)

@@ -1,9 +1,6 @@
 import atexit
-
-import logging
-from logging import warning
-
 import datetime
+import logging
 import os
 import random
 import socket
@@ -202,6 +199,8 @@ class Stream(Document):
         self.ensure_initialized()
         self._batcher = None
         self.batchsize = batchsize
+        self._producer = None
+        self._consumer = None
         atexit.register(self.stop)
 
     def ensure_initialized(self):
@@ -223,11 +222,13 @@ class Stream(Document):
 
     @property
     def as_producer(self):
-        return Participant.myself(self, 'producer')
+        self._producer = self._producer or Participant.myself(self, 'producer')
+        return self._producer
 
     @property
     def as_consumer(self):
-        return Participant.myself(self, 'consumer')
+        self._consumer = self._consumer or Participant.myself(self, 'consumer')
+        return self._consumer
 
     @property
     def participants(self):
@@ -269,6 +270,8 @@ class Stream(Document):
             source.cancel()
         self.as_consumer.leave()
         self.as_producer.leave()
+        self._consumer = None
+        self._producer = None
 
     @classmethod
     def get_or_create(cls, name, url=None, interval=None, batchsize=1, **kwargs):
@@ -309,7 +312,7 @@ class Participant(Document):
     last_beat = DateTimeField(default=datetime.datetime.utcnow)
     chord = StringField(required=True, default='default')
     hostname = StringField(required=True, default=lambda: Participant.my_hostname())
-    elector = IntField(default=lambda: randint(0, 1000000))
+    elector = IntField(default=lambda: randint(0, Participant.MAX_ELECTOR))
     meta = {
         'db_alias': 'minibatch',
         'strict': False,  # support previous releases
@@ -322,6 +325,8 @@ class Participant(Document):
     }
 
     ACTIVE_INTERVAL = 10  # seconds
+    GRACE_PERIOD = 20  # seconds
+    MAX_ELECTOR = 1000000
     MYSELF = threading.local()
     _shutdown = False
 
@@ -331,24 +336,35 @@ class Participant(Document):
         self._all_chords = set()
 
     def __repr__(self):
-        return f"Participant({self.stream=},{self.role=},{self.hostname=},{self.chord=})"
+        leading = self.my_leading()
+        return f"Participant({self.stream=},{self.role=},{self.hostname=},{self.chord=},{self.active=},{leading=})"
 
     @classmethod
     def leader(cls, stream):
         stream = stream.name if isinstance(stream, Stream) else stream
-        since = datetime.datetime.utcnow() - datetime.timedelta(seconds=cls.ACTIVE_INTERVAL)
-        return Participant.objects(stream=stream, last_beat__gte=since).order_by('-elector').first()
+        since = cls._since(cls)
+        return Participant.objects(stream=stream, last_beat__gte=since).order_by('-elector').limit(1).first()
+
+    @property
+    def since(self):
+        return self._since(self)
+
+    @staticmethod
+    def _since(self):
+        GRACE_PERIOD = datetime.timedelta(seconds=self.GRACE_PERIOD)
+        return datetime.datetime.utcnow() - (datetime.timedelta(seconds=self.ACTIVE_INTERVAL) + GRACE_PERIOD)
 
     def my_leading(self):
         leader = Participant.leader(self.stream)
         return leader.pk == self.pk if leader else False
 
     def beat(self):
-        self.update(last_beat=datetime.datetime.utcnow())
+        self.last_beat = datetime.datetime.utcnow()
+        self.save()
 
     def start(self):
         if self.alive and not self.alive.thread:
-            print("starting", self.alive, self.chord, self.hostname)
+            logger.debug(f"starting {self!r}")
             t = self.alive.thread = Thread(target=self._run_beat_thread)
             t.start()
         atexit.register(self.leave)
@@ -363,7 +379,7 @@ class Participant(Document):
     def _run_beat_thread(self):
         while self.alive and not Participant._shutdown:
             try:
-                print("beat", self.alive, self.chord, self.hostname, Participant._shutdown)
+                logger.debug(f"beat {self!r}")
                 self.beat()
                 self.housekeep()
                 self.alive.wait(self.ACTIVE_INTERVAL)
@@ -371,18 +387,17 @@ class Participant(Document):
                 logger.error(e)
 
     def leave(self):
-        print("leaving", self.alive, self.chord, self.hostname)
+        logger.debug(f"leaving {self!r}")
         self.alive.stop()
         self.delete()
 
     def housekeep(self):
         # cleanup known chords
-        GRACE_PERIOD = datetime.timedelta(seconds=self.ACTIVE_INTERVAL)
-        since = datetime.datetime.utcnow() - (datetime.timedelta(seconds=self.ACTIVE_INTERVAL) + GRACE_PERIOD)
-        active = Participant.objects(role='consumer', last_beat__gte=since).no_cache()
-        inactive = Participant.objects(role='consumer', last_beat__lt=since).no_cache()
-        self._all_chords -= set(inactive.distinct('chord'))
-        self._all_chords |= set(active.distinct('chord'))
+        since = self.since
+        active = Participant.objects(stream=self.stream, last_beat__gte=since).no_cache()
+        inactive = Participant.objects(stream=self.stream, last_beat__lt=since).no_cache()
+        self._all_chords -= set(inactive.filter(role='consumer').distinct('chord'))
+        self._all_chords |= set(active.filter(role='consumer').distinct('chord'))
         if self.my_leading():
             self.leader_housekeep(since, inactive)
 
@@ -390,11 +405,11 @@ class Participant(Document):
         # remove inactive participants
         inactive.delete()
         # assign default messages
-        messages = Buffer.objects(chord='default', processed=False).order_by('created')
+        messages = Buffer.objects(stream=self.stream, chord='default', processed=False).order_by('created')
         for msg in messages:
             msg.update(chord=self.select_chord())
         # balance stream
-        messages = Buffer.objects(created__lt=since, processed=False).order_by('chord')
+        messages = Buffer.objects(stream=self.stream, created__lt=since, processed=False).order_by('chord')
         for g, msgs in groupby(messages, key=lambda m: m.chord):
             # messages in previously the same chord should stay in the same chord
             new_chord = self.select_chord()
@@ -458,7 +473,7 @@ class Participant(Document):
 
     @property
     def active(self):
-        return self.last_beat > datetime.datetime.utcnow() - datetime.timedelta(seconds=self.ACTIVE_INTERVAL)
+        return self.last_beat >= self.since
 
     @classmethod
     def my_hostname(cls):
@@ -470,6 +485,18 @@ class Participant(Document):
         logger.info("Shutting down all participants and streams")
         for part in cls.MYSELF.__dict__.values():
             part.leave()
+
+
+class Monitor:
+    def __init__(self):
+        Participant.myself('system', 'monitor')
+
+    def participants(self):
+        for s in Stream.objects.no_cache():
+            Participant.myself(s.name, 'monitor')
+            for p in Participant.for_stream(s):
+                yield p
+
 
 
 atexit.register(Participant.shutdown)
