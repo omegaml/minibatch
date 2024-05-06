@@ -13,7 +13,7 @@ mongo_pid = None
 
 
 def streaming(name, interval=None, size=None, emitter=None,
-              relaxed=True, keep=False, url=None, sink=None,
+              relaxed=True, keep=False, url=None, sink=None, chord=None,
               queue=None, source=None, blocking=True, **kwargs):
     """
     make and call a streaming function
@@ -61,7 +61,7 @@ def streaming(name, interval=None, size=None, emitter=None,
     def make(fn):
         return make_emitter(name, fn, interval=interval, size=size,
                             emitter=emitter, relaxed=relaxed, keep=keep,
-                            url=url, sink=sink, queue=queue, source=source,
+                            url=url, sink=sink, chord=chord, queue=queue, source=source,
                             **kwargs)
 
     def inner(fn):
@@ -85,7 +85,7 @@ class IntegrityError(Exception):
 
 def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
                  url=None, sink=None, emitter=None, keep=False, queue=None,
-                 source=None, cnx_kwargs=None, **kwargs):
+                 source=None, chord=None, cnx_kwargs=None, **kwargs):
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     if interval is None and size is None:
@@ -98,7 +98,7 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     stream = Stream.get_or_create(name, interval=interval or size, **cnx_kwargs)
     # create the emitter
     emitfn._count = 0
-    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue)
+    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue, chord=chord)
     if interval and emitter is None:
         if relaxed:
             em = RelaxedTimeWindow(name, interval=interval, **kwargs)

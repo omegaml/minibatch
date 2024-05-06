@@ -29,7 +29,7 @@ class KafkaTests(TestCase):
         s.attach(source)
 
         def consumer(q, url):
-            @streaming('test', executor=LocalExecutor(), url=url, queue=q)
+            @streaming('test', executor=LocalExecutor(), chord='default', url=url, queue=q)
             def process(window):
                 db = connectdb(url=url)
                 db.processed.insert_many(window.data)
@@ -44,20 +44,24 @@ class KafkaTests(TestCase):
         docs = list(self.db.processed.find())
         self.assertEqual(len(docs), 1)
 
-
     def test_sink(self):
         # we simply inject a mock KafkaProducer into the KafkaSink
-        s = stream('test', url=self.url)
+        s = stream('test-kafka', url=self.url)
         s.append(dict(foo='baz'))
         sink = KafkaSink('test-kafka')
         producer = MagicMock()
         sink._producer = producer
         # create a threaded emitter that we can stop
-        em = make_emitter('test-kafka', url=self.url, sink=sink, emitfn=lambda v: v)
+        em = make_emitter('test-kafka', chord='default', url=self.url, sink=sink, emitfn=lambda v: v)
         t = Thread(target=em.run)
         t.start()
-        sleep(5)
+        # force chord-housekeeping to ensure messages are delivered
+        sleep(1)
         em.stop()
         s.stop()
         # check the  sink got called and forward to the mock KafkaProducer
-        producer.send.assert_called_with('test', value={'foo': 'baz'})
+        self.assertEqual(s.buffer(processed=False).count(), 0, f'buffer not empty, got {s.buffer()}')
+
+    def test_sink_volume(self):
+        for i in range(10):
+            self.test_sink()

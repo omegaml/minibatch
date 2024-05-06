@@ -7,12 +7,15 @@ import socket
 import threading
 from itertools import groupby
 from mongoengine import Document
-from mongoengine.errors import NotUniqueError
+from mongoengine.errors import NotUniqueError, DoesNotExist
 from mongoengine.fields import (StringField, IntField, DateTimeField,
                                 ListField, DictField, BooleanField)
+from pymongo.errors import DuplicateKeyError
 from random import randint
 from threading import Thread
 from uuid import uuid4
+
+from minibatch.util import ProcessLocal, resilient
 
 STATUS_INIT = 'initialize'
 STATUS_OPEN = 'open'
@@ -21,7 +24,7 @@ STATUS_PROCESSED = 'processed'
 STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 
-logger = logging.getLogger(__name__)
+logger = resilient(logging.getLogger(__name__))
 
 
 class ThreadAlive(threading.Event):
@@ -33,8 +36,14 @@ class ThreadAlive(threading.Event):
         # return True if thread is alive (i.e. event is not set)
         return not self.is_set()
 
-    def stop(self):
+    def stop(self, wait=False, timeout=None):
         self.set()
+        if wait:
+            self.join(timeout=timeout)
+
+    def join(self, timeout=5):
+        if self.thread:
+            self.thread.join(timeout)
 
 
 class Batcher:
@@ -201,7 +210,6 @@ class Stream(Document):
         self.batchsize = batchsize
         self._producer = None
         self._consumer = None
-        atexit.register(self.stop)
 
     def ensure_initialized(self):
         if self.status == STATUS_INIT:
@@ -263,6 +271,7 @@ class Stream(Document):
             self._source_thread = t = Thread(target=source.stream,
                                              args=(self,))
             t.start()
+            atexit.register(self.stop)
 
     def stop(self):
         source = getattr(self, '_stream_source', None)
@@ -312,7 +321,7 @@ class Participant(Document):
     last_beat = DateTimeField(default=datetime.datetime.utcnow)
     chord = StringField(required=True, default='default')
     hostname = StringField(required=True, default=lambda: Participant.my_hostname())
-    elector = IntField(default=lambda: randint(0, Participant.MAX_ELECTOR))
+    elector = IntField(required=True, default=lambda: randint(0, Participant.MAX_ELECTOR))
     meta = {
         'db_alias': 'minibatch',
         'strict': False,  # support previous releases
@@ -327,13 +336,19 @@ class Participant(Document):
     ACTIVE_INTERVAL = 10  # seconds
     GRACE_PERIOD = 20  # seconds
     MAX_ELECTOR = 1000000
-    MYSELF = threading.local()
-    _shutdown = False
+    MYSELF = ProcessLocal()
+    STRATEGY = 'random'
+    _key = lambda stream, role, hostname: f'{stream}_{role}_{hostname}'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.alive = ThreadAlive()
         self._all_chords = set()
+        # the lock protects beat() and leave() to ensure atomicity
+        # -- beat() and leave() are only called  by the actual instance of the participant
+        # -- there is no distributed scenario where these methods are called by multiple threads/processes
+        # -- if we don't use a lock, we end up seeing Participants(stream=None, role=None, hostname=None)
+        self.lock = threading.Lock()
 
     def __repr__(self):
         leading = self.my_leading()
@@ -342,42 +357,48 @@ class Participant(Document):
     @classmethod
     def leader(cls, stream):
         stream = stream.name if isinstance(stream, Stream) else stream
-        since = cls._since(cls)
+        since = cls._last_active(cls)
         return Participant.objects(stream=stream, last_beat__gte=since).order_by('-elector').limit(1).first()
 
     @property
-    def since(self):
-        return self._since(self)
+    def last_active(self):
+        return self._last_active(self)
 
     @staticmethod
-    def _since(self):
-        GRACE_PERIOD = datetime.timedelta(seconds=self.GRACE_PERIOD)
-        return datetime.datetime.utcnow() - (datetime.timedelta(seconds=self.ACTIVE_INTERVAL) + GRACE_PERIOD)
+    def _last_active(self):
+        grace_period = datetime.timedelta(seconds=self.GRACE_PERIOD)
+        return datetime.datetime.utcnow() - (datetime.timedelta(seconds=self.ACTIVE_INTERVAL) + grace_period)
 
     def my_leading(self):
         leader = Participant.leader(self.stream)
         return leader.pk == self.pk if leader else False
 
     def beat(self):
-        self.last_beat = datetime.datetime.utcnow()
-        self.save()
+        # acquiring the lock to avoid interference with start() and leave()
+        with self.lock:
+            if not self.alive:
+                return
+            self.last_beat = datetime.datetime.utcnow()
+            self.modify(chord=self.chord, last_beat=self.last_beat)
 
     def start(self):
-        if self.alive and not self.alive.thread:
-            logger.debug(f"starting {self!r}")
-            t = self.alive.thread = Thread(target=self._run_beat_thread)
-            t.start()
-        atexit.register(self.leave)
+        # acquiring the lock to avoid interference with leave() from another thread
+        with self.lock:
+            if self.alive and not self.alive.thread:
+                logger.debug(f"starting {self!r}")
+                t = self.alive.thread = Thread(target=self._run_beat_thread)
+                t.start()
+                atexit.register(Participant.shutdown)
 
     def select_chord(self):
-        return random.choice(self.chords)
+        return random.choice(self.chords) if self.STRATEGY == 'random' else self.chord
 
     @property
     def chords(self):
         return list(self._all_chords) or [self.chord]
 
     def _run_beat_thread(self):
-        while self.alive and not Participant._shutdown:
+        while self.alive:
             try:
                 logger.debug(f"beat {self!r}")
                 self.beat()
@@ -386,14 +407,25 @@ class Participant(Document):
             except Exception as e:
                 logger.error(e)
 
-    def leave(self):
-        logger.debug(f"leaving {self!r}")
-        self.alive.stop()
-        self.delete()
+    def leave(self, wait=False, timeout=5):
+        # acquiring the lock to avoid interference with beat()
+        with self.lock:
+            logger.debug(f"leaving {self!r}")
+            # stop this instance and delete from registry db
+            # -- this could come from a Participant.for_stream() query
+            self.alive.stop(wait=wait, timeout=timeout)
+            self.delete()
+            # stop any other instance for this Participant
+            # -- this could come from a Participant.register() call
+            # -- if we don't do this we might end up with beat() threads keep running
+            #    (rationale: .leave() may be called interactively/from a script, deleting the participant but
+            #     not stopping the beat() thread. We avoid this by stopping the thread here)
+            part : Participant|None = self.MYSELF.pop(Participant._key(self.stream, self.role, self.hostname), None)
+            part.alive.stop(wait=wait, timeout=timeout) if part else None
 
-    def housekeep(self):
+    def housekeep(self, since=None):
         # cleanup known chords
-        since = self.since
+        since = since if since is not None else self.last_active
         active = Participant.objects(stream=self.stream, last_beat__gte=since).no_cache()
         inactive = Participant.objects(stream=self.stream, last_beat__lt=since).no_cache()
         self._all_chords -= set(inactive.filter(role='consumer').distinct('chord'))
@@ -427,7 +459,7 @@ class Participant(Document):
         chord = chord or default_chord
         try:
             participant = Participant.objects(stream=stream, role=role, hostname=hostname).no_cache().get()
-        except Participant.DoesNotExist as e:
+        except (DoesNotExist, DuplicateKeyError) as e:
             retry = 5
             while retry:
                 try:
@@ -445,6 +477,8 @@ class Participant(Document):
     def register(cls, stream, role, hostname=None, chord=None):
         participant = cls.get_or_create(stream, role, hostname=hostname, chord=chord)
         participant.start()
+        partname = cls._key(stream, role, hostname)
+        cls.MYSELF[partname] = participant
         return participant
 
     @classmethod
@@ -465,15 +499,14 @@ class Participant(Document):
     def myself(cls, stream, role, hostname=None):
         stream = stream.name if isinstance(stream, Stream) else stream
         hostname = hostname or Participant.my_hostname()
-        partname = f'{stream}_{role}_{hostname}'
-        if cls.MYSELF.__dict__.get(partname) is None:
+        partname = cls._key(stream, role, hostname)
+        if cls.MYSELF.get(partname) is None:
             participant = cls.register(stream, role, hostname=hostname)
-            cls.MYSELF.__dict__[partname] = participant
-        return cls.MYSELF.__dict__[partname]
+        return cls.MYSELF[partname]
 
     @property
     def active(self):
-        return self.last_beat >= self.since
+        return self.last_beat >= self.last_active
 
     @classmethod
     def my_hostname(cls):
@@ -481,10 +514,9 @@ class Participant(Document):
 
     @classmethod
     def shutdown(cls):
-        cls._shutdown = True
         logger.info("Shutting down all participants and streams")
-        for part in cls.MYSELF.__dict__.values():
-            part.leave()
+        for part in list(cls.MYSELF.values()):
+            part.leave(wait=True)
 
 
 class Monitor:
@@ -499,4 +531,3 @@ class Monitor:
 
 
 
-atexit.register(Participant.shutdown)

@@ -31,3 +31,19 @@ class ProcessLocal(dict):
     def __contains__(self, item):
         self._check_pid()
         return (self._cache or super()).__contains__(item)
+
+
+class resilient:
+    # make a logger that doesn't crash on exceptions
+    # due to the stream being closed on exit
+    def __init__(self, obj):
+        self.obj = obj
+
+    def __getattr__(self, attr):
+        return resilient(getattr(self.obj, attr))
+
+    def __call__(self, *args, **kwargs):
+        try:
+            return self.obj(*args, **kwargs)
+        except Exception as e:
+            pass

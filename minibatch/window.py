@@ -82,7 +82,14 @@ class WindowEmitter(object):
         self.emit_empty = emit_empty
         self.emitfn = emitfn
         self.processfn = processfn
-        self.executor = (executor or LocalExecutor(max_workers=max_workers))
+        # a ProcessPool will be created
+        # - if max_workers > 1 or max_workers -1
+        # - else a LocalExecutor will be created (the default)
+        self.executor = executor or (
+            ProcessPoolExecutor(max_workers=None if max_workers == -1 else max_workers)
+            if max_workers is not None and (max_workers > 1 or max_workers == -1)
+            else LocalExecutor()
+        )
         self._stream = stream
         self._stream_url = stream_url
         self._delete_on_commit = True
@@ -108,6 +115,7 @@ class WindowEmitter(object):
     @property
     def consumer(self):
         self._consumer = self._consumer or self.stream.as_consumer
+        self._consumer.chord = self._chord or self._consumer.chord
         return self._consumer
 
     @property
@@ -203,6 +211,8 @@ class WindowEmitter(object):
 
     def run(self, blocking=True):
         logger.debug(f'{self} start running')
+        # be sure to register as a consumer
+        self._consumer = self.consumer
         while not self.should_stop():
             self._run_once()
             self.sleep()

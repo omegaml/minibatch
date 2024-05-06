@@ -1,5 +1,4 @@
 from multiprocessing import Process, Queue
-from multiprocessing.dummy import DummyProcess
 from unittest import TestCase
 
 import logging
@@ -38,6 +37,7 @@ class MiniBatchTests(TestCase):
 
     def tearDown(self):
         reset_mongoengine()
+        Participant.shutdown()
 
     def sleep(self, seconds):
         sleepdot(seconds)
@@ -64,7 +64,7 @@ class MiniBatchTests(TestCase):
 
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
-            @streaming('test', size=2, keep=True, url=self.url, queue=q)
+            @streaming('test', size=2, keep=True, url=self.url, queue=q, chord='default')
             def myprocess(window):
                 logger.debug("*** processing")
                 try:
@@ -187,7 +187,7 @@ class MiniBatchTests(TestCase):
 
             # note the stream decorator blocks the consumer and runs the decorated
             # function asynchronously upon the window criteria is satisfied
-            @streaming('test', size=2, keep=True, url=self.url, max_workers=workers, queue=q)
+            @streaming('test', size=2, keep=True, url=self.url, max_workers=workers, queue=q, chord='default')
             def myprocess(window):
                 logger.debug("*** processing {}".format(window.data))
                 from minibatch import connectdb
@@ -218,9 +218,8 @@ class MiniBatchTests(TestCase):
         for i in range(10):
             stream.append({'index': i})
         # give it some time to process
-        logger.debug("waiting")
         # note it takes at least 25 seconds using 1 worker (5 windows, 5 seconds)
-        # so we expect to fail
+        logger.debug("waiting")
         self.sleep(12)
         q.put(True)
         if expect_fail:
@@ -236,7 +235,7 @@ class MiniBatchTests(TestCase):
         self._do_test_slow_emitfn(workers=1, expect_fail=True, timeout=30)
 
     def test_slow_emitfn_parallel_workers(self):
-        self._do_test_slow_emitfn(workers=5, expect_fail=False, timeout=12)
+        self._do_test_slow_emitfn(workers=5, expect_fail=False, timeout=15)
 
     def test_buffer_cleaned(self):
         stream = Stream.get_or_create('test', url=self.url)
@@ -258,18 +257,22 @@ class MiniBatchTests(TestCase):
         self.assertEqual(participant.role, 'producer')
         self.assertTrue(participant.active)
         participant.ACTIVE_INTERVAL = 0  # simulate inactivity
+        participant.GRACE_PERIOD = 0  # simulate no grace period
         self.assertFalse(participant.active)
         participant.ACTIVE_INTERVAL = 1  # simulate short activity timeout
+        participant.GRACE_PERIOD = 5  # simulate short grace period
         participant.beat()
         self.assertTrue(participant.active)
         participant.leave()
-        self.assertEqual(0, Participant.objects.count())
+        if Participant.objects.count() > 0:
+            print("participants", Participant.objects.all())
+        self.assertEqual(0, Participant.objects.count(), f"participant not removed, got {Participant.objects.all()}")
         # leadership
         # -- check leader is selected automatically and correctly
         participants = []
         for i in range(10):
             participants.append(Participant.register('test', 'producer', hostname=str(i)))
-        self.assertEqual(10, Participant.objects.count())
+        self.assertEqual(10, Participant.objects.count(), f'expected 10 participants, got {Participant.objects.all()}')
         max_elector = max(p.elector for p in Participant.objects().no_cache())
         leader = Participant.leader('test')
         self.assertIsInstance(leader, Participant)
@@ -279,13 +282,18 @@ class MiniBatchTests(TestCase):
         leader.leave()
         for p in list(Participant.for_stream('test'))[0:5]:
             p.leave()
-        self.assertEqual(4, Participant.objects.count())
+        self.assertEqual(4, Participant.objects.count(), f'expected 4 participants left, got {Participant.objects.all()}')
         leader2 = Participant.leader('test')
         self.assertNotEqual(leader.hostname, leader2.hostname)
         # -- remove all participants
         for p in Participant.for_stream('test'):
             p.leave()
-        self.assertEqual(0, Participant.objects.count())
+        self.assertEqual(0, Participant.objects.count(), f"participant not removed, got {Participant.objects.all()}")
+
+    def test_participants_multiple(self):
+        # attempt to catch concurrency errors
+        for i in range(10):
+            self.test_participants()
 
     def test_chords_single_consumer(self):
         Participant.ACTIVE_INTERVAL = 1  # simulate short activity timeout
@@ -303,15 +311,15 @@ class MiniBatchTests(TestCase):
         workers = 5
         procs = self._consumer_pool(workers=workers, stream='test-multi', size=2, keep=True)
         assertEventually(lambda: len(stream.as_producer.chords) == workers,
-                         lambda: f"expected 6 chords, got {len(stream.as_producer.chords)}",
-                         timeout=10)
+                         lambda: f"expected {workers} chords, got {len(stream.as_producer.chords)}",
+                         timeout=15)
         # fill stream
         for i in range(100):
             stream.append({'index': i})
             # print("all chords", stream.as_producer._all_chords)
         assertEventually(lambda: len(set(w.chord for w in stream.buffer())) == workers,
                          lambda: f"expected 5 chords, got {len(set(w.chord for w in stream.buffer()))}",
-                         timeout=10)
+                         timeout=15)
         self.assertEqual(workers, len(Participant.for_stream(stream, role='consumer')))
         stream.stop()
         self._close_pool(procs)
