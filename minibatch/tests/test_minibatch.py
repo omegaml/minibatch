@@ -242,3 +242,17 @@ class MiniBatchTests(TestCase):
 
         docs = list(Buffer.objects.filter())
         self.assertEqual(len(docs), 0)
+
+    def test_buffer_housekeeping(self):
+        stream = Stream.get_or_create('test', url=self.url, max_age=.5)
+        stream.append({'foo': 'bar1'})
+        stream.append({'foo': 'bar1'})
+        stream.append({'foo': 'bar1'})
+        # expect buffer contains all 3 entries
+        self.assertEqual(stream.buffer().count(), 3)
+        # wait for housekeeping to take effect
+        time.sleep(1)
+        # expect buffer is empty
+        self.assertEqual(stream.buffer().count(), 0)
+        stream.stop()
+

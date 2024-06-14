@@ -1,6 +1,8 @@
+import threading
 from logging import warning
 
 import datetime
+import logging
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
 from mongoengine.fields import (StringField, IntField, DateTimeField,
@@ -15,6 +17,9 @@ STATUS_PROCESSED = 'processed'
 STATUS_FAILED = 'failed'
 STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 
+# we don't propagate this logger to avoid logging housekeeping messages unless requested
+hk_logger = logging.getLogger(__name__ + '.housekeeping')
+hk_logger.propagate = False
 
 class Batcher:
     """ A batching list-like
@@ -90,6 +95,7 @@ class ImmediateWriter:
         Returns:
 
         """
+        cls: (ImmediateWriter, Document)
         if batcher is None:
             cls._get_collection().insert_one(doc)
         else:
@@ -99,6 +105,7 @@ class ImmediateWriter:
 
     @classmethod
     def flush(cls, batcher=None):
+        cls: (ImmediateWriter, Document)
         if batcher is not None:
             # the iterable is to avoid duplicate objects (batch op errors)
             cls._get_collection().insert_many(dict(d) for d in batcher.batch)
@@ -170,11 +177,16 @@ class Stream(Document):
         ]
     }
 
-    def __init__(self, *args, batchsize=1, **kwargs):
+    def __init__(self, *args, batchsize=1, max_age=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ensure_initialized()
         self._batcher = None
+        self._url = None
+        self._cnx_kwargs = None
+        self._stream_source = None
         self.batchsize = batchsize
+        self._max_age = max_age
+        self.ensure_initialized()
+        self.autoclear(max_age)
 
     def ensure_initialized(self):
         if self.status == STATUS_INIT:
@@ -200,25 +212,48 @@ class Stream(Document):
     def flush(self):
         Buffer.flush(self._batcher)
 
+    def clear(self):
+        Buffer.objects.no_cache().filter(**{'stream': self.name}).delete()
+
     def attach(self, source, background=True):
         """
         use an external producer to start streaming
         """
         self._stream_source = source
         if not background:
-            source.stream(self)
-        else:
-            self._source_thread = t = Thread(target=source.stream,
-                                             args=(self,))
-            t.start()
+            return source.stream(self)
+        self._start_source(source)
 
     def stop(self):
-        source = getattr(self, '_stream_source', None)
-        if source:
-            source.cancel()
+        """ stop the stream
+
+        Stops the source and housekeeping threads (if any).
+
+        Returns:
+            None
+        """
+        self._stop_source()
+        self._stop_housekeeping()
 
     @classmethod
-    def get_or_create(cls, name, url=None, interval=None, batchsize=1, **kwargs):
+    def get_or_create(cls, name, url=None, interval=None, batchsize=1, max_age=None,
+                      **kwargs):
+        """ get or create a stream
+
+        Args:
+            name (str): the name of the stream
+            url (str): the database url
+            interval (float): the interval in seconds, or a fraction thereof,
+               DEPRECATED
+            batchsize (int): the batch size, DEPRECATED
+            max_age (int|dict): the maximum age of the data in seconds, or as a dict
+                to datetime.timedelta(**kwargs). Specifies the interval to run the
+                housekeeping thread and the maximum age of data in the buffer, relative
+                to the created timestamp. If None, the housekeeping thread is stopped.
+
+        Returns:
+            Stream: the stream object
+        """
         # critical section
         # this may fail in concurrency situations
         from minibatch import connectdb
@@ -236,11 +271,104 @@ class Stream(Document):
             except NotUniqueError:
                 pass
             stream = Stream.objects(name=name).no_cache().get()
+        stream._url = url
+        stream._cnx_kwargs = kwargs
         stream.batchsize = batchsize
+        stream._max_age = max_age
+        stream.autoclear(max_age)
         return stream
 
     def buffer(self, **kwargs):
+        self.flush()
         return Buffer.objects.no_cache().filter(**{'stream': self.name, **kwargs})
 
     def window(self, **kwargs):
+        self.flush()
         return Window.objects.no_cache().filter(**{'stream': self.name, **kwargs})
+
+    def streaming(self, fn=None, **kwargs):
+        """ returns a streaming function
+
+        Args:
+            fn (callable): optional, a window function. If not
+               specified the streaming function is returned as a decorator
+               to an actual window function.
+            **kwargs: kwargs passed to minibatch.streaming()
+
+        Returns:
+            fn (callable): the streaming function
+        """
+        from minibatch import streaming as _base_streaming
+        return _base_streaming(self.name, fn=fn, url=self._url, cnx_kwargs=self._cnx_kwargs, **kwargs)
+
+    @property
+    def source(self):
+        return self._stream_source
+
+    def autoclear(self, max_age=None):
+        # specify max_age in seconds or as a dict to timedelta(**kwargs)
+        # None means never clear
+        self._max_age = max_age if max_age is not None else self._max_age
+        self._start_housekeeping()
+
+    def _housekeeping(self):
+        while self._max_age:
+            max_age = self._max_age
+            if not isinstance(max_age, dict):
+                max_age = dict(seconds=max_age)
+            earliest = datetime.datetime.utcnow() - datetime.timedelta(**max_age)
+            try:
+                count = Buffer.objects.no_cache().filter(**{'stream': self.name, 'created__lte': earliest}).delete()
+            except Exception as e:
+                hk_logger.warning(f"housekeeping for stream {self.name} failed: {e}")
+            else:
+                hk_logger.info(f"housekeeping for stream {self.name}: deleted {count} objects earlier than {earliest}")
+            # effectively we keep at most 2x _max_age periods of data
+            # -- example: max_age = 10
+            #    t: ---------+---------+---------+
+            #       0       10        20        30
+            #       dddddddddd (d = data)
+            #                * _housekeeping runs, deletes before t0
+            #       dddddddddddddddddddd
+            #                          * _housekeeping runs, deletes before t10
+            #       xxxxxxxxxxdddddddddd (x = deleted)
+            #                 dddddddddddddddddddd
+            #                                      * _housekeeping runs, deletes before t20
+            #                 xxxxxxxxxxddddddddddd (x = deleted)
+
+            # we use this instead of sleep() to allow for a quick stop()
+            # -- using sleep() means the thread waits up to max_age time (which could be very long, days, months, etc)
+            # -- using Event.wait() means the thread waits up to max_age time, but can be stopped immediately by
+            #    setting the event
+            # -- see https://stackoverflow.com/a/42710697/890242
+            # TODO refactor this into a context manager or decorator so we can easily reuse it
+            if self._housekeeping_stop_ev.wait(timeout=datetime.timedelta(**max_age).total_seconds()):
+                break
+        hk_logger.debug(f"housekeeping for stream {self.name} stopped")
+
+
+    def _start_source(self, source):
+        try:
+            self._source_thread = t = Thread(target=source.stream,
+                                             args=(self,))
+            t.start()
+        except (KeyboardInterrupt, SystemExit):
+            self.stop()
+
+    def _stop_source(self):
+        # stop source
+        source = getattr(self, '_stream_source', None)
+        if source:
+            source.cancel()
+
+    def _start_housekeeping(self):
+        try:
+            self._housekeeping_stop_ev = threading.Event()
+            self._housekeeping_thread = t = Thread(target=self._housekeeping)
+            t.start()
+        except (KeyboardInterrupt, SystemExit):
+            self._stop_housekeeping()
+
+    def _stop_housekeeping(self):
+        self._max_age = None
+        self._housekeeping_stop_ev.set()
