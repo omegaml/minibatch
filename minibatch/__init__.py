@@ -5,14 +5,15 @@ from pymongo.errors import AutoReconnect
 from time import sleep
 
 from minibatch._version import version  # noqa
-from minibatch.models import Stream, Buffer, Window  # noqa
+from minibatch.models import Stream, Buffer, Window, Participant  # noqa
+from minibatch.util import ProcessLocal
 
 logger = logging.getLogger(__name__)
 mongo_pid = None
 
 
 def streaming(name, interval=None, size=None, emitter=None,
-              relaxed=True, keep=False, url=None, sink=None,
+              relaxed=True, keep=False, url=None, sink=None, chord=None,
               queue=None, source=None, blocking=True, **kwargs):
     """
     make and call a streaming function
@@ -60,17 +61,15 @@ def streaming(name, interval=None, size=None, emitter=None,
     def make(fn):
         return make_emitter(name, fn, interval=interval, size=size,
                             emitter=emitter, relaxed=relaxed, keep=keep,
-                            url=url, sink=sink, queue=queue, source=source,
+                            url=url, sink=sink, chord=chord, queue=queue, source=source,
                             **kwargs)
 
     def inner(fn):
         if not hasattr(inner, '_em'):
             inner._em = make(fn)
-
         inner._em.run(blocking=blocking)
 
     inner.apply = lambda fn: inner(fn)
-    inner.make = lambda fn: make(fn)
     return inner
 
 
@@ -86,19 +85,20 @@ class IntegrityError(Exception):
 
 def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
                  url=None, sink=None, emitter=None, keep=False, queue=None,
-                 source=None, cnx_kwargs=None, **kwargs):
+                 source=None, chord=None, cnx_kwargs=None, **kwargs):
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     if interval is None and size is None:
         size = 1
-
+    # support autoforwarding to a sink
     forwardfn = sink.put if sink else None
-
-    emitfn._count = 0
+    # create the stream
     cnx_kwargs = cnx_kwargs or {}
     cnx_kwargs.update(url=url) if url else None
     stream = Stream.get_or_create(name, interval=interval or size, **cnx_kwargs)
-    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue)
+    # create the emitter
+    emitfn._count = 0
+    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue, chord=chord)
     if interval and emitter is None:
         if relaxed:
             em = RelaxedTimeWindow(name, interval=interval, **kwargs)
@@ -108,10 +108,10 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
         em = CountWindow(name, interval=size, **kwargs)
     elif emitter is not None:
         em = emitter(name, emitfn=emitfn,
-                     interval=interval or size,
+                     size=size, interval=interval,
                      **kwargs)
     else:
-        raise ValueError("need either interval=, size= or emitter=")
+        raise ValueError("Cannot decide on emitter strategy, as need either interval=, size= or emitter= was provided.")
     em.persist(keep)
     if source:
         # starts a background thread that inserts source messages into the Buffer
@@ -129,6 +129,7 @@ def reset_mongoengine():
     # see https://stackoverflow.com/a/49404748/890242
     #     https://github.com/MongoEngine/mongoengine/issues/1599#issuecomment-374901186
     from mongoengine import connection
+    from minibatch import models
     # There is a fix in mongoengine 18.0 that is supposed to introduce the same
     # behavior using disconnection_all(), however in some cases this is the
     # actual source of the warning due to calling connection.close()
@@ -136,18 +137,22 @@ def reset_mongoengine():
     # -- the implemented solution simply ensures MongoClients get recreated
     #    whenever needed
 
-    def clean(d):
-        if 'minibatch' in d:
-            del d['minibatch']
-        if 'default' in d:
-            del d['default']
+    def ensure_process_local_connection(k):
+        if not isinstance(getattr(connection, k), ProcessLocal):
+            setattr(connection, k, ProcessLocal())
 
-    clean(connection._connection_settings)
-    clean(connection._connections)
-    clean(connection._dbs)
-    Window._collection = None
-    Buffer._collection = None
-    Stream._collection = None
+    def reset_model(k):
+        m = getattr(models, k)
+        m._collection = None
+
+    for k in ['_connection_settings', '_connections', '_dbs']:
+        ensure_process_local_connection(k)
+
+    if 'minibatch' not in getattr(connection, '_connections'):
+        for k in ['Stream', 'Buffer', 'Window', 'Participant']:
+            reset_model(k)
+        return True
+    return False
 
 
 def authenticated_url(mongo_url, authSource='admin'):
@@ -166,10 +171,9 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin',
     from mongoengine import connect
     from mongoengine.connection import get_db
 
-    url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL')
+    url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL') or 'mongodb://localhost:27017'
     url = authenticated_url(url, authSource=authSource) if authSource else url
     alias = alias or 'minibatch'
-    reset_mongoengine()
     if False and fast_insert:
         # set writeConcern options
         # https://pymongo.readthedocs.io/en/stable/api/pymongo/mongo_client.html?highlight=mongoclient
@@ -178,7 +182,8 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin',
         kwargs['w'] = 0
         kwargs['journal'] = False
     kwargs.setdefault('uuidRepresentation', 'standard')
-    connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
+    if reset_mongoengine():
+        connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
     waitForConnection(get_connection(alias))
     return get_db(alias=alias)
 
@@ -198,3 +203,4 @@ def waitForConnection(client):
             break
     if _exc is not None:
         raise _exc
+
