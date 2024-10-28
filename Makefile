@@ -26,7 +26,7 @@ lint:
 	flake8 && echo CONGRATULATIONS all is OK
 
 test:
-	docker-compose up -d
+	docker compose up -d
 	pytest -s -v
 
 bumppatch:
