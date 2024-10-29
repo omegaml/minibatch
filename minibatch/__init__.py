@@ -1,7 +1,6 @@
-import types
-
 import logging
 import os
+import types
 from mongoengine import get_connection, ConnectionFailure
 from pymongo.errors import AutoReconnect
 from time import sleep
@@ -96,7 +95,7 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     forwardfn = sink.put if sink else None
     if isinstance(emitfn, types.BuiltinFunctionType):
         orig_emitfn = emitfn
-        emitfn = lambda *args, **kwargs: orig_emitfn(*args, **kwargs)
+        emitfn = lambda *args, **kwargs: orig_emitfn(*args, **kwargs)  # noqa
     emitfn._count = 0
     cnx_kwargs = cnx_kwargs or {}
     cnx_kwargs.update(url=url) if url else None
