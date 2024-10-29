@@ -1,3 +1,5 @@
+import types
+
 import logging
 import os
 from mongoengine import get_connection, ConnectionFailure
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 mongo_pid = None
 
 
-def streaming(name, interval=None, size=None, emitter=None,
+def streaming(name, fn=None, interval=None, size=None, emitter=None,
               relaxed=True, keep=False, url=None, sink=None,
               queue=None, source=None, blocking=True, **kwargs):
     """
@@ -19,17 +21,17 @@ def streaming(name, interval=None, size=None, emitter=None,
 
     Usage:
         # fixed-size stream
-        @stream(size=n)
+        @stream(name, size=n)
         def myproc(window):
             # process window.data
 
         # time-based stream
-        @stream(interval=seconds)
+        @stream(name, interval=seconds)
         def myproc(window):
             # process window.data
 
         # arbitrary WindowEmitter subclass
-        @stream(emitter=MyWindowEmitter):
+        @stream(name, emitter=MyWindowEmitter):
         def myproc(window):
             # process window.data
 
@@ -71,13 +73,16 @@ def streaming(name, interval=None, size=None, emitter=None,
 
     inner.apply = lambda fn: inner(fn)
     inner.make = lambda fn: make(fn)
-    return inner
+    return inner if fn is None else inner.apply(fn)
 
 
-def stream(name, url=None, ssl=False, **kwargs):
-    cnx_kwargs = dict(url=url, ssl=ssl)
-    kwargs.update(cnx_kwargs)
-    return Stream.get_or_create(name, **kwargs)
+def stream(name, fn=None, url=None, ssl=False, **kwargs):
+    kwargs.update(url=url, ssl=ssl)
+    stream = Stream.get_or_create(name, **kwargs)
+    fn = fn or name if callable(name) else fn
+    if callable(fn):
+        return streaming(name, url=url, ssl=ssl, **kwargs)(fn)
+    return stream
 
 
 class IntegrityError(Exception):
@@ -89,11 +94,11 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
                  source=None, cnx_kwargs=None, **kwargs):
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
-    if interval is None and size is None:
-        size = 1
-
+    size = 1 if size is None and interval is None else size
     forwardfn = sink.put if sink else None
-
+    if isinstance(emitfn, types.BuiltinFunctionType):
+        orig_emitfn = emitfn
+        emitfn = lambda *args, **kwargs: orig_emitfn(*args, **kwargs)
     emitfn._count = 0
     cnx_kwargs = cnx_kwargs or {}
     cnx_kwargs.update(url=url) if url else None
@@ -155,7 +160,7 @@ def authenticated_url(mongo_url, authSource='admin'):
         # all configuration is provided by the DNS
         # https://docs.mongodb.com/manual/reference/connection-string/#std-label-connections-dns-seedlist
         return mongo_url
-    if 'authSource' not in str(mongo_url):
+    if mongo_url and 'authSource' not in str(mongo_url):
         joiner = '&' if '?' in mongo_url else '?'
         mongo_url = '{}{}authSource={}'.format(mongo_url, joiner, authSource)
     return mongo_url
