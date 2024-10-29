@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 from unittest import TestCase
 
 try:
@@ -47,6 +46,7 @@ try:
 
         def test_sink(self):
             om = self.om
+            db = self.db # noqa
             url = str(self.url)
 
             source = DatasetSource(om, 'stream-test')
@@ -68,6 +68,8 @@ try:
             em.should_stop = lambda *args, **kwargs: om.datasets.collection('stream-sink').count_documents({}) > 0
             em.run(blocking=True)
             s.stop()
+
+            docs = list(db.processed.find())
             docs = list(om.datasets.collection('stream-sink').find())
             self.assertEqual(len(docs), 1)
 
