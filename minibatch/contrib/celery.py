@@ -26,7 +26,8 @@ class CeleryEventSource:
 
     Args:
         celeryapp (Celery.app): the celery application
-        events (list): optional, list of events to process
+        events (list): optional, list of events to process, defaults to the
+            self.default_events
 
     See Also
         https://docs.celeryproject.org/en/latest/userguide/monitoring.html#real-time-processing
@@ -68,8 +69,9 @@ class CeleryEventSource:
     def recv(self):
         return self._recv
 
-    def task_info(self, task):
+    def task_info(self, task, event):
         return {
+            'task_event': event,
             'task_name': task.name,
             'task_id': getattr(task, 'uuid'),
             'task_info': task.info(),
@@ -84,8 +86,9 @@ class CeleryEventSource:
         if 'uuid' in event:
             # get task info
             task = state.tasks.get(event['uuid'])
+            event = event.get('type')
             # append to stream
-            self._stream.append(self.task_info(task))
+            self._stream.append(self.task_info(task, event))
         else:
             self._stream.append(event)
 
