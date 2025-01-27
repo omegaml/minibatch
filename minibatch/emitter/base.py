@@ -5,7 +5,7 @@ import logging
 
 from minibatch import Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
-from minibatch.models import Buffer
+from minibatch.models import Buffer, Participant
 
 
 class Emitter(object):
@@ -73,6 +73,7 @@ class Emitter(object):
         self._delete_on_commit = True
         self._forwardfn = forwardfn
         self._stop = False
+        self._participant = None
 
     def query(self, *args):
         now, last_read = args
@@ -151,6 +152,7 @@ class Emitter(object):
         self._stop = True
 
     def run(self):
+        self._participant = Participant.for_stream(self.stream, 'consumer')
         while not self._stop:
             logger.debug("testing window ready")
             ready, query_args = self.ready()
@@ -190,3 +192,5 @@ class Emitter(object):
             self.sleep()
             logger.debug("awoke")
         self.executor.shutdown(wait=True)
+        self._participant.stop()
+        self._participant = None
