@@ -1,8 +1,8 @@
-import threading
 from logging import warning
 
 import datetime
 import logging
+import threading
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
 from mongoengine.fields import (StringField, IntField, DateTimeField,
@@ -20,6 +20,7 @@ STATUS_CHOICES = (STATUS_OPEN, STATUS_CLOSED, STATUS_FAILED)
 # we don't propagate this logger to avoid logging housekeeping messages unless requested
 hk_logger = logging.getLogger(__name__ + '.housekeeping')
 hk_logger.propagate = False
+
 
 class Batcher:
     """ A batching list-like
@@ -345,7 +346,6 @@ class Stream(Document):
             if self._housekeeping_stop_ev.wait(timeout=datetime.timedelta(**max_age).total_seconds()):
                 break
         hk_logger.debug(f"housekeeping for stream {self.name} stopped")
-
 
     def _start_source(self, source):
         try:

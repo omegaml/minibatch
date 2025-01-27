@@ -255,4 +255,3 @@ class MiniBatchTests(TestCase):
         # expect buffer is empty
         self.assertEqual(stream.buffer().count(), 0)
         stream.stop()
-

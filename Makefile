@@ -5,7 +5,7 @@ dist:
 	rm -rf dist/*
 	python setup.py sdist bdist_wheel
 
-pypi: dist
+pypi-test: dist
 	twine check dist/*
 	twine upload --repository testpypi-omegaml dist/*
 	@echo now test your package!
