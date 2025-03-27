@@ -92,7 +92,11 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     from minibatch.window import RelaxedTimeWindow, FixedTimeWindow, CountWindow
 
     size = 1 if size is None and interval is None else size
-    forwardfn = sink.put if sink else None
+    # sink -- can be passed as Sink protocol, or any callable
+    # -- if sink has a put method, use it as the forwardfn
+    # -- elif sink is a callable, use it as the forwardfn
+    # -- else forwardfn is None
+    forwardfn = sink.put if callable(getattr(sink, 'put', sink)) else None
     if isinstance(emitfn, types.BuiltinFunctionType):
         orig_emitfn = emitfn
         emitfn = lambda *args, **kwargs: orig_emitfn(*args, **kwargs)  # noqa
@@ -141,8 +145,8 @@ def reset_mongoengine():
     def clean(d):
         if 'minibatch' in d:
             del d['minibatch']
-        if 'default' in d:
-            del d['default']
+        # if 'default' in d:
+        #     del d['default']
 
     clean(connection._connection_settings)
     clean(connection._connections)
