@@ -54,14 +54,14 @@ class MongoSource:
         self._cancel = None
         self._lastid = None
         self._size = size
-        self._idcol = '_id'
+        self._idcol = idcol or '_id'
         self._delay = delay
 
     def changes(self, N=1):
         latest_id = None
         while not self._cancel:
             sortkey = {
-                'sort': [('_id', pymongo.ASCENDING)],
+                'sort': [(self._idcol, pymongo.ASCENDING)],
             }
             query = {}
             if latest_id is not None:
@@ -91,6 +91,7 @@ class MongoSink:
     """
     A mongodb collection sink
     """
+
     def __init__(self, collection):
         self.collection = collection
 

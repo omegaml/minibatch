@@ -75,10 +75,10 @@ def streaming(name, fn=None, interval=None, size=None, emitter=None,
     return inner if fn is None else inner.apply(fn)
 
 
-def stream(name, fn=None, url=None, ssl=False, **kwargs):
+def stream(name, fn=None, url=None, **kwargs):
     if callable(fn):
-        return streaming(name, url=url, ssl=ssl, **kwargs)(fn)
-    kwargs.update(url=url, ssl=ssl)
+        return streaming(name, url=url, **kwargs)(fn)
+    kwargs.update(url=url)
     return Stream.get_or_create(name, **kwargs)
 
 
@@ -121,7 +121,7 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     return em
 
 
-def reset_mongoengine():
+def patch_mongoengine():
     # this is to avoid mongoengine's MongoClient instances in subprocesses
     # resulting in "MongoClient opened before fork" warning
     # the source of the problem is that mongoengine stores MongoClients in
@@ -137,19 +137,11 @@ def reset_mongoengine():
     # see https://github.com/MongoEngine/mongoengine/pull/2038
     # -- the implemented solution simply ensures MongoClients get recreated
     #    whenever needed
-
-    def clean(d):
-        if 'minibatch' in d:
-            del d['minibatch']
-        if 'default' in d:
-            del d['default']
-
-    clean(connection._connection_settings)
-    clean(connection._connections)
-    clean(connection._dbs)
-    Window._collection = None
-    Buffer._collection = None
-    Stream._collection = None
+    if not isinstance(connection._connection_settings, ProcessLocal):
+        setattr(connection, '_connection_settings', ProcessLocal(connection._connection_settings))
+        setattr(connection, '_connections', ProcessLocal(connection._connections))
+        setattr(connection, '_dbs', ProcessLocal(connection._dbs))
+    return
 
 
 def authenticated_url(mongo_url, authSource='admin'):
@@ -171,7 +163,7 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin',
     url = url or os.environ.get('MINIBATCH_MONGO_URL') or os.environ.get('MONGO_URL')
     url = authenticated_url(url, authSource=authSource) if authSource else url
     alias = alias or 'minibatch'
-    reset_mongoengine()
+    patch_mongoengine()
     if False and fast_insert:
         # set writeConcern options
         # https://pymongo.readthedocs.io/en/stable/api/pymongo/mongo_client.html?highlight=mongoclient
@@ -180,6 +172,7 @@ def connectdb(url=None, dbname=None, alias=None, authSource='admin',
         kwargs['w'] = 0
         kwargs['journal'] = False
     kwargs.setdefault('uuidRepresentation', 'standard')
+    kwargs.pop('ssl', None)  # since pymongo 4.0
     connect(alias=alias, db=dbname, host=url, connect=False, **kwargs)
     waitForConnection(get_connection(alias))
     return get_db(alias=alias)
@@ -200,3 +193,39 @@ def waitForConnection(client):
             break
     if _exc is not None:
         raise _exc
+
+
+class ProcessLocal(dict):
+    def __init__(self, *args, cache=None, **kwargs):
+        self._pid = os.getpid()
+        self._cache = cache
+        super().__init__(*args, **kwargs)
+
+    def _check_pid(self):
+        if self._pid != os.getpid():
+            self.clear()
+            self._pid = os.getpid()
+
+    def __getitem__(self, k):
+        self._check_pid()
+        return (self._cache or super()).__getitem__(k)
+
+    def __setitem__(self, k, v):
+        self._check_pid()
+        (self._cache or super()).__setitem__(k, v)
+
+    def keys(self):
+        self._check_pid()
+        return (self._cache or super()).keys()
+
+    def values(self):
+        self._check_pid()
+        return (self._cache or super()).values()
+
+    def clear(self):
+        self._cache.clear() if self._cache else None
+        return super().clear()
+
+    def __contains__(self, item):
+        self._check_pid()
+        return (self._cache or super()).__contains__(item)

@@ -1,11 +1,11 @@
-from datetime import datetime
 from multiprocessing import Process, Queue
-from threading import Thread
 from unittest import TestCase
 
+from datetime import datetime
+from threading import Thread
 from time import sleep
 
-from minibatch import connectdb, streaming, stream, make_emitter, Buffer, reset_mongoengine
+from minibatch import connectdb, streaming, stream, make_emitter, Buffer
 from minibatch.contrib.mongodb import MongoSource, MongoSink
 from minibatch.tests.util import delete_database, LocalExecutor
 
@@ -17,7 +17,7 @@ class MongodbTests(TestCase):
         self.db = connectdb(url=self.url)
 
     def tearDown(self):
-        reset_mongoengine()
+        pass
 
     def test_source(self):
         N = 1
