@@ -5,7 +5,7 @@ import multiprocessing
 import sys
 import time
 
-from minibatch import Stream, Buffer, connectdb, reset_mongoengine
+from minibatch import Stream, Buffer, connectdb
 from minibatch.tests.util import delete_database
 from minibatch.window import CountWindow
 
@@ -30,7 +30,7 @@ class MiniBatchTests(TestCase):
         self.db = connectdb(url=self.url)
 
     def tearDown(self):
-        reset_mongoengine()
+        pass
 
     def sleep(self, seconds):
         sleepdot(seconds)

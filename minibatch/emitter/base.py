@@ -7,6 +7,8 @@ from minibatch import Stream, logger
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
 from minibatch.models import Buffer
 
+logger = logging.getLogger(__name__)
+
 
 class Emitter(object):
     """
@@ -127,7 +129,7 @@ class Emitter(object):
 
     def _run_emitfn(self, data):
         if self.emitfn:
-            logging.debug("calling emitfn")
+            logger.debug("calling emitfn")
             try:
                 sjob = SerializableFunction(self.emitfn, data)
                 future = self.executor.submit(sjob)

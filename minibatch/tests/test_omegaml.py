@@ -4,10 +4,11 @@ try:
     from omegaml import Omega
     from time import sleep
 
-    from minibatch import stream, connectdb, reset_mongoengine
+    from minibatch import stream, connectdb
     from minibatch.contrib.omegaml import DatasetSource, DatasetSink
     from minibatch.tests.util import delete_database, LocalExecutor
     from minibatch.window import CountWindow
+
 
     class OmegamlTests(TestCase):
         def setUp(self):
@@ -17,7 +18,7 @@ try:
             self.db = connectdb(self.url)
 
         def tearDown(self):
-            reset_mongoengine()
+            pass
 
         def test_source(self):
             om = self.om
@@ -46,7 +47,7 @@ try:
 
         def test_sink(self):
             om = self.om
-            db = self.db # noqa
+            db = self.db  # noqa
             url = str(self.url)
 
             source = DatasetSource(om, 'stream-test')

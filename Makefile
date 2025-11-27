@@ -1,9 +1,12 @@
 .PHONY: dist
 
+install:
+	pip install -U -e .[all,dev] --ignore-installed
+
 dist:
 	mkdir -p dist
 	rm -rf dist/*
-	python setup.py sdist bdist_wheel
+	python -m build --sdist --wheel
 
 pypi-test: dist
 	twine check dist/*
