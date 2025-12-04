@@ -100,18 +100,17 @@ def make_emitter(name, emitfn, interval=None, size=None, relaxed=False,
     cnx_kwargs = cnx_kwargs or {}
     cnx_kwargs.update(url=url) if url else None
     stream = Stream.get_or_create(name, interval=interval or size, **cnx_kwargs)
-    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue)
-    if interval and emitter is None:
+    kwargs.update(stream=stream, emitfn=emitfn, forwardfn=forwardfn, queue=queue,
+                  size=size, interval=interval)
+    if emitter is not None:
+        em = emitter(name, **kwargs)
+    elif interval:
         if relaxed:
-            em = RelaxedTimeWindow(name, interval=interval, **kwargs)
+            em = RelaxedTimeWindow(name, **kwargs)
         else:
-            em = FixedTimeWindow(name, interval=interval, **kwargs)
-    elif size and emitter is None:
-        em = CountWindow(name, interval=size, **kwargs)
-    elif emitter is not None:
-        em = emitter(name, emitfn=emitfn,
-                     interval=interval or size,
-                     **kwargs)
+            em = FixedTimeWindow(name, **kwargs)
+    elif size:
+        em = CountWindow(name, **kwargs)
     else:
         raise ValueError("need either interval=, size= or emitter=")
     em.persist(keep)

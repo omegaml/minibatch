@@ -247,7 +247,7 @@ class Stream(Document):
             interval (float): the interval in seconds, or a fraction thereof,
                DEPRECATED
             batchsize (int): the batch size, DEPRECATED
-            max_age (int|dict): the maximum age of the data in seconds, or as a dict
+            max_age (int|float|dict): the maximum age of the data in seconds, or as a dict
                 to datetime.timedelta(**kwargs). Specifies the interval to run the
                 housekeeping thread and the maximum age of data in the buffer, relative
                 to the created timestamp. If None, the housekeeping thread is stopped.

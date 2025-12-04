@@ -75,7 +75,7 @@ class WindowEmitter(object):
     def __init__(self, stream_name, interval=None, processfn=None,
                  emitfn=None, emit_empty=False, executor=None,
                  max_workers=None, stream=None, stream_url=None,
-                 forwardfn=None, queue=None):
+                 forwardfn=None, queue=None, **kwargs):
         self.stream_name = stream_name
         self.interval = interval if interval is not None else 1
         self.emit_empty = emit_empty
@@ -175,13 +175,13 @@ class WindowEmitter(object):
     def run(self, blocking=True):
         while not self.should_stop():
             self._run_once()
+            if not blocking:
+                break
             logger.debug("sleeping")
             self.sleep()
             logger.debug("awoke")
-            if not blocking:
-                break
         if blocking:
-            # if we did not block, keep executor running
+            # if we blocked, stop executor
             try:
                 self.executor.shutdown(wait=True)
             except Exception as e:
@@ -222,7 +222,6 @@ class WindowEmitter(object):
                         self.forward(data)
                     finally:
                         logger.debug('emit done')
-                    self.sleep()
 
                 future.add_done_callback(emit_done)
 
@@ -304,12 +303,17 @@ class RelaxedTimeWindow(FixedTimeWindow):
 
 
 class CountWindow(WindowEmitter):
+    def __init__(self, stream_name, size=None, interval=None, **kwargs):
+        super().__init__(stream_name, **kwargs)
+        self.interval = interval if interval is not None else 0.01
+        self.size = size or interval or 1
+
     def window_ready(self):
         fltkwargs = dict(stream=self.stream_name, processed=False)
-        qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.interval)
+        qs = Buffer.objects.no_cache().filter(**fltkwargs).limit(self.size)
         n_docs = qs.count(with_limit_and_skip=True)
         self._qs = qs
-        return n_docs >= self.interval, []
+        return n_docs >= self.size, []
 
     def query(self, *args):
         return self._qs
@@ -320,4 +324,4 @@ class CountWindow(WindowEmitter):
 
     def sleep(self):
         import time
-        time.sleep(0.1)
+        time.sleep(self.interval)
