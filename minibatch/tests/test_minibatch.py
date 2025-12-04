@@ -86,6 +86,47 @@ class MiniBatchTests(TestCase):
         self.assertEqual(count, 5)
         self.assertTrue(all(len(w) == 2 for w in data))
 
+    def test_explicit_emitter(self):
+        """
+        Test batch windows of fixed sizes work ok
+        """
+        from minibatch import streaming
+
+        def consumer(q):
+            logger.debug("starting consumer on {self.url}".format(**locals()))
+            url = str(self.url)
+
+            # note the stream decorator blocks the consumer and runs the decorated
+            # function asynchronously upon the window criteria is satisfied
+            @streaming('test', emitter=CountWindow, size=2, keep=True, url=self.url, queue=q)
+            def myprocess(window):
+                logger.debug("*** processing")
+                try:
+                    db = connectdb(url)
+                    db.processed.insert_one({'data': window.data or {}})
+                except Exception as e:
+                    print(e)
+                    raise
+
+        # start stream consumer
+        q = Queue()
+        stream = Stream.get_or_create('test', url=self.url)
+        proc = Process(target=consumer, args=(q,))
+        proc.start()
+        # fill stream
+        for i in range(10):
+            stream.append({'index': i})
+        # give it some time to process
+        logger.debug("waiting")
+        self.sleep(10)
+        q.put(True)  # stop @streaming
+        proc.join()
+        # expect 5 entries, each of length 2
+        data = list(doc for doc in self.db.processed.find())
+        count = len(data)
+        self.assertEqual(count, 5)
+        self.assertTrue(all(len(w) == 2 for w in data))
+
     def test_timed_window(self):
         """
         Test timed windows work ok
