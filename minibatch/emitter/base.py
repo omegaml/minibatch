@@ -3,7 +3,7 @@ from concurrent.futures import Future, ProcessPoolExecutor
 import datetime
 import logging
 
-from minibatch import Stream, logger
+from minibatch import Stream
 from minibatch.marshaller import SerializableFunction, MinibatchFuture
 from minibatch.models import Buffer
 
