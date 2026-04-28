@@ -10,7 +10,7 @@ try:
     from minibatch.window import CountWindow
 
 
-    class OmegamlTests(TestCase):
+    class OmegamlTests(TestCase):  # noqa: E303
         def setUp(self):
             self.url = 'mongodb://localhost/test'
             delete_database(url=self.url)
